@@ -16,4 +16,5 @@ Closes #
 
 - [ ] Added/updated tests for any behavior change
 - [ ] Updated `CHANGELOG.md`
+- [ ] Updated docs (README / OpenAPI annotations) if applicable
 - [ ] Kept this PR focused on one logical change

@@ -115,3 +115,6 @@ fit best; add a new section if none fits.
 - Added CODE_OF_CONDUCT.md, SECURITY.md, issue templates, and a pull
   request template. Fixed a stale README line still describing the old
   fragment-based token handoff.
+- Refreshed README after the invites/admin panel/OpenAPI batch (the
+  settings-icon reference was stale - it's the avatar now) and added an
+  "Updated docs" line to the PR checklist template.
