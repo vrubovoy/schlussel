@@ -309,3 +309,109 @@ describe('RegisterPage — login link', () => {
     vi.unstubAllEnvs()
   })
 })
+
+describe('RegisterPage — invite-gated registration', () => {
+  // A bare admin-shared invite link: no return_to, no code_challenge at all.
+  // Unlike every other "no return_to" case above (which bounces away
+  // immediately), the presence of ?invite= makes this a legitimate entry
+  // point, so the form should render instead. The decision appears to be
+  // made asynchronously (the very first render is still blank), so queries
+  // here use the async find* variants rather than get*.
+  const INVITE_QS = '?invite=SOMECODE123'
+
+  it('renders the registration form instead of redirecting when only ?invite= is present', async () => {
+    const { RegisterPage } = await setLocation(INVITE_QS)
+    render(<RegisterPage />)
+
+    expect(await screen.findByPlaceholderText('Ваше имя')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/example/i)).toBeInTheDocument()
+    expect(document.querySelectorAll('input[type="password"]')).toHaveLength(2)
+    expect(window.location.href).toBe('')
+    expect(mockRegister).not.toHaveBeenCalled()
+  })
+
+  it('pre-fills an invite-code field with the code from the URL', async () => {
+    const { RegisterPage } = await setLocation(INVITE_QS)
+    render(<RegisterPage />)
+
+    await screen.findByPlaceholderText('Ваше имя')
+    expect(screen.getByDisplayValue('SOMECODE123')).toBeInTheDocument()
+  })
+
+  it('calls register with the invite code included when submitting from a bare invite link', async () => {
+    const { RegisterPage } = await setLocation(INVITE_QS)
+    mockRegister.mockResolvedValue({ code: 'reg-code' })
+    const user = userEvent.setup()
+    render(<RegisterPage />)
+
+    await user.type(await screen.findByPlaceholderText('Ваше имя'), 'Alice')
+    await user.type(screen.getByPlaceholderText(/example/i), 'alice@test.com')
+    await user.type(document.querySelectorAll('input[type="password"]')[0], 'password1')
+    await user.type(document.querySelectorAll('input[type="password"]')[1], 'password1')
+    await user.click(screen.getByRole('button', { name: 'Зарегистрироваться' }))
+
+    await waitFor(() => expect(mockRegister).toHaveBeenCalled())
+    const args = mockRegister.mock.calls[0]
+    expect(args).toContain('SOMECODE123')
+  })
+
+  it('navigates away on successful submission from a bare invite link', async () => {
+    const { RegisterPage } = await setLocation(INVITE_QS)
+    mockRegister.mockResolvedValue({ code: 'reg-code' })
+    const user = userEvent.setup()
+    render(<RegisterPage />)
+
+    await user.type(await screen.findByPlaceholderText('Ваше имя'), 'Alice')
+    await user.type(screen.getByPlaceholderText(/example/i), 'alice@test.com')
+    await user.type(document.querySelectorAll('input[type="password"]')[0], 'password1')
+    await user.type(document.querySelectorAll('input[type="password"]')[1], 'password1')
+    await user.click(screen.getByRole('button', { name: 'Зарегистрироваться' }))
+
+    await waitFor(() => expect(mockRegister).toHaveBeenCalled())
+    await waitFor(() => expect(window.location.href).not.toBe(''))
+    expect(window.location.href).not.toBe('/register')
+  })
+
+  it('also includes the invite code in register() call args for the existing return_to + code_challenge path', async () => {
+    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    const { RegisterPage } = await setLocation(
+      `?return_to=https://kuvert.test/callback${PKCE_QS}&invite=SOMECODE123`,
+    )
+    mockRegister.mockResolvedValue({ code: 'reg-code' })
+    const user = userEvent.setup()
+    render(<RegisterPage />)
+
+    await user.type(screen.getByPlaceholderText('Ваше имя'), 'Alice')
+    await user.type(screen.getByPlaceholderText(/example/i), 'alice@test.com')
+    await user.type(document.querySelectorAll('input[type="password"]')[0], 'password1')
+    await user.type(document.querySelectorAll('input[type="password"]')[1], 'password1')
+    await user.click(screen.getByRole('button', { name: 'Зарегистрироваться' }))
+
+    await waitFor(() => expect(mockRegister).toHaveBeenCalled())
+    const args = mockRegister.mock.calls[0]
+    expect(args).toContain('SOMECODE123')
+    vi.unstubAllEnvs()
+  })
+
+  it('shows a distinct error when register rejects with a 400 (invalid/expired invite) on the bare invite-link path', async () => {
+    const { RegisterPage } = await setLocation(INVITE_QS)
+    const ApiError = (await import('../lib/api')).ApiError
+    mockRegister.mockRejectedValue(new ApiError(400, 'Invalid or expired invite code'))
+    const user = userEvent.setup()
+    render(<RegisterPage />)
+
+    await user.type(await screen.findByPlaceholderText('Ваше имя'), 'Alice')
+    await user.type(screen.getByPlaceholderText(/example/i), 'alice@test.com')
+    await user.type(document.querySelectorAll('input[type="password"]')[0], 'password1')
+    await user.type(document.querySelectorAll('input[type="password"]')[1], 'password1')
+    await user.click(screen.getByRole('button', { name: 'Зарегистрироваться' }))
+
+    await waitFor(() => expect(mockRegister).toHaveBeenCalled())
+    await waitFor(() => {
+      const text = document.body.textContent ?? ''
+      expect(text.length).toBeGreaterThan(0)
+    })
+    expect(screen.queryByText('Пароли не совпадают')).not.toBeInTheDocument()
+    expect(screen.queryByText('Этот email уже зарегистрирован')).not.toBeInTheDocument()
+  })
+})

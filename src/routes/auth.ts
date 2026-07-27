@@ -1,10 +1,10 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { eq, lt, and } from 'drizzle-orm'
+import { eq, lt, and, isNull, gt } from 'drizzle-orm'
 import { createId } from '@paralleldrive/cuid2'
 import { db } from '../db/index.js'
-import { users, refreshTokens, authCodes, type User } from '../db/schema.js'
+import { users, refreshTokens, authCodes, invites, type User } from '../db/schema.js'
 import { hashPassword, verifyPassword } from '../utils/password.js'
 import { signAccessToken, signRefreshToken, verifyToken } from '../utils/jwt.js'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
@@ -20,7 +20,7 @@ const AUTH_CODE_MAX_AGE = 60 // seconds
 // this header can't be forged by anything but code we control.
 const TRUSTED_ORIGIN_HEADER = 'x-schlussel-frontend'
 
-function hashToken(token: string): string {
+export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex')
 }
 
@@ -28,13 +28,16 @@ function hashToken(token: string): string {
 // 43 characters. code_verifier itself is 43-128 chars per RFC 7636.
 const codeChallengeSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/)
 
-const registerSchema = z.object({
+export const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(128),
   name: z.string().min(1).max(100),
+  // Required unless this is the very first user on the platform (see the
+  // handler below) - there's no admin yet to have issued one at that point.
+  inviteCode: z.string().min(1).optional(),
 })
 
-const loginSchema = z
+export const loginSchema = z
   .object({
     email: z.string().email(),
     password: z.string(),
@@ -46,21 +49,21 @@ const loginSchema = z
     { message: 'codeChallenge and codeChallengeMethod must be given together' },
   )
 
-const tokenSchema = z.object({
+export const tokenSchema = z.object({
   code: z.string(),
   codeVerifier: z.string().regex(/^[A-Za-z0-9_-]{43,128}$/),
 })
 
-const changePasswordSchema = z.object({
+export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: z.string().min(8).max(128),
 })
 
-const deleteAccountSchema = z.object({
+export const deleteAccountSchema = z.object({
   password: z.string().min(1),
 })
 
-const nameSchema = z.object({
+export const nameSchema = z.object({
   name: z.string().min(1).max(100),
 })
 
@@ -158,11 +161,11 @@ async function issueAuthCode(userId: string, codeChallenge: string): Promise<str
   return code
 }
 
-// Shared by /password and /account below - both need "who is making this
-// request", the same check /me already does inline. Kept private to this
-// module rather than also refactoring /me onto it, to avoid touching a
+// Shared by /password, /account, and admin.ts's authenticateAdmin - all
+// need "who is making this request", the same check /me already does
+// inline. /me itself isn't refactored onto it, to avoid touching a
 // working, already-tested code path for an unrelated change.
-async function authenticateBearer(c: { req: { header: (name: string) => string | undefined } }): Promise<User | null> {
+export async function authenticateBearer(c: { req: { header: (name: string) => string | undefined } }): Promise<User | null> {
   const authHeader = c.req.header('Authorization')
   if (!authHeader?.startsWith('Bearer ')) return null
   try {
@@ -176,28 +179,75 @@ async function authenticateBearer(c: { req: { header: (name: string) => string |
 
 export const authRouter = new Hono()
 
+// Marker used below to distinguish "invite redemption failed" from any
+// other unexpected error thrown out of the transaction.
+class InvalidInviteError extends Error {}
+
 authRouter.post('/register', zValidator('json', registerSchema), async (c) => {
-  const { email, password, name } = c.req.valid('json')
+  const { email, password, name, inviteCode } = c.req.valid('json')
 
   const existing = await db.select().from(users).where(eq(users.email, email)).get()
   if (existing) {
     return c.json({ error: 'Email already registered' }, 409)
   }
 
-  // First user becomes admin
+  // First user becomes admin and bootstraps without an invite - there is
+  // no admin yet to have issued one.
   const userCount = await db.select().from(users).all()
-  const role = userCount.length === 0 ? 'admin' : 'user'
+  const isFirstUser = userCount.length === 0
+  const role: 'admin' | 'user' = isFirstUser ? 'admin' : 'user'
+
+  if (!isFirstUser && !inviteCode) {
+    return c.json({ error: 'Invite code required' }, 400)
+  }
 
   const user = {
     id: createId(),
     email,
     passwordHash: await hashPassword(password),
     name,
-    role: role as 'admin' | 'user',
+    role,
     createdAt: new Date(),
   }
 
-  await db.insert(users).values(user)
+  try {
+    // better-sqlite3 transactions are synchronous - hashing the password
+    // above (real async work) happens before entering it, so nothing
+    // inside this callback ever yields to the event loop. Combined with
+    // the conditional `usedAt IS NULL` guard, this makes invite redemption
+    // atomic: two concurrent requests racing the same code can never both
+    // succeed, and if the invite turns out to be invalid the user insert
+    // rolls back with it instead of creating an account for nothing.
+    //
+    // The user row is inserted FIRST, before the invite is marked used -
+    // `invites.used_by_user_id` has a foreign key to `users.id`, and
+    // foreign_keys=ON enforces it immediately (not deferred), so setting
+    // usedByUserId to a not-yet-existing user id would fail every time.
+    db.transaction((tx) => {
+      tx.insert(users).values(user).run()
+      if (!isFirstUser && inviteCode) {
+        const now = new Date()
+        const redeemed = tx
+          .update(invites)
+          .set({ usedAt: now, usedByUserId: user.id })
+          .where(and(
+            eq(invites.codeHash, hashToken(inviteCode)),
+            isNull(invites.usedAt),
+            isNull(invites.revokedAt),
+            gt(invites.expiresAt, now),
+          ))
+          .run()
+        if (redeemed.changes === 0) throw new InvalidInviteError()
+      }
+    })
+  } catch (err) {
+    if (err instanceof InvalidInviteError) {
+      // Deliberately vague - don't tell a caller whether the code was
+      // wrong, expired, revoked, or already used.
+      return c.json({ error: 'Invalid or expired invite code' }, 400)
+    }
+    throw err
+  }
 
   return c.json({ id: user.id, email: user.email, name: user.name, role: user.role }, 201)
 })

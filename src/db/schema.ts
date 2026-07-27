@@ -34,7 +34,25 @@ export const authCodes = sqliteTable('auth_codes', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
 
+// Admin-issued, single-use registration invites. `usedAt` is the
+// atomicity guard for redemption (see routes/admin.ts): a conditional
+// UPDATE ... WHERE usedAt IS NULL only succeeds for exactly one of two
+// concurrent redemption attempts of the same code.
+export const invites = sqliteTable('invites', {
+  id: text('id').primaryKey(),
+  codeHash: text('code_hash').notNull().unique(),
+  createdByUserId: text('created_by_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  revokedAt: integer('revoked_at', { mode: 'timestamp' }),
+  usedAt: integer('used_at', { mode: 'timestamp' }),
+  // set null (not cascade): if the redeeming user is later deleted, the
+  // invite's audit trail should still show it was redeemed, not vanish.
+  usedByUserId: text('used_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+})
+
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type RefreshToken = typeof refreshTokens.$inferSelect
 export type AuthCode = typeof authCodes.$inferSelect
+export type Invite = typeof invites.$inferSelect

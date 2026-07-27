@@ -1,7 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Field, Button } from '@zudar107/schloss-ui'
 import { register, ApiError } from '../../lib/api'
-import { readReturnTo, readCodeChallenge, redirectWithCode, redirectToDefaultApp, withReturnTo } from '../../lib/returnTo'
+import { generateCodeChallenge, generateCodeVerifier } from '../../lib/pkce'
+import {
+  readReturnTo, readCodeChallenge, redirectWithCode, redirectToDefaultApp, withReturnTo, DEFAULT_APP_URL,
+} from '../../lib/returnTo'
 import { ErrorPage } from './ErrorPage'
 import { PasswordField } from './PasswordField'
 import { Header } from '../../components/Header'
@@ -10,27 +13,60 @@ import { Footer } from '../../components/Footer'
 export function RegisterPage() {
   const returnTo = readReturnTo()
   const codeChallenge = readCodeChallenge()
+  const inviteFromUrl = new URLSearchParams(window.location.search).get('invite') ?? ''
+  const hasInvite = inviteFromUrl.length > 0
+  // Both present together, exactly as before - a partially-specified pair
+  // is treated the same as neither being there.
+  const hasExternalCaller = returnTo.present && codeChallenge.present
+
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [inviteCode, setInviteCode] = useState(inviteFromUrl)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  // Only needed for the bare-invite-link path below, where there's no
+  // external caller supplying its own code_challenge - generated once and
+  // never persisted anywhere, since nothing here ever redeems the
+  // resulting code itself (see handleSubmit's comment).
+  const [selfChallenge, setSelfChallenge] = useState('')
 
-  // No return_to (or no code_challenge) means this page was reached by
-  // typing the URL directly rather than via an external redirect - send
-  // the visitor to the platform's home instead of ever rendering the form.
-  if (!returnTo.present || !codeChallenge.present) {
+  useEffect(() => {
+    if (hasExternalCaller || !hasInvite) return
+    let cancelled = false
+    void generateCodeChallenge(generateCodeVerifier()).then((c) => {
+      if (!cancelled) setSelfChallenge(c)
+    })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // No return_to (or no code_challenge) normally means this page was
+  // reached by typing the URL directly rather than via an external
+  // redirect - send the visitor to the platform's home instead of ever
+  // rendering the form. A bare admin-shared invite link is the one
+  // legitimate exception: it has neither, but is still a real, intended
+  // entry point.
+  if (!hasExternalCaller && !hasInvite) {
     redirectToDefaultApp()
     return null
   }
 
-  if (!returnTo.valid) {
+  if (returnTo.present && !returnTo.valid) {
     return <ErrorPage message="Адрес, на который нужно вернуться после регистрации, не входит в список разрешённых." />
   }
 
-  const returnToUrl = returnTo.url
-  const challenge = codeChallenge.codeChallenge
+  if (!hasExternalCaller && !selfChallenge) {
+    // Still generating the throwaway challenge above - nothing to submit
+    // to yet.
+    return null
+  }
+
+  const returnToUrl = hasExternalCaller && returnTo.present && returnTo.valid ? returnTo.url : DEFAULT_APP_URL
+  const challenge = hasExternalCaller && codeChallenge.present ? codeChallenge.codeChallenge : selfChallenge
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -41,10 +77,20 @@ export function RegisterPage() {
     }
     setLoading(true)
     try {
-      const { code } = await register(email, password, name, challenge)
+      const { code } = await register(email, password, name, challenge, inviteCode || undefined)
+      // In the bare-invite-link case there's no real external app waiting
+      // to redeem this code - registering already established a session
+      // cookie on this same origin (the login step inside register() is
+      // always same-origin/trusted here), so DEFAULT_APP_URL's own auth
+      // check will find no local token, bounce through schlussel's /login,
+      // and that page's silent-reauth picks the cookie straight back up.
+      // The stray `code` param is simply ignored by whatever it lands on.
       redirectWithCode(returnToUrl, code)
     } catch (err) {
-      setError(err instanceof ApiError && err.status === 409 ? 'Этот email уже зарегистрирован' : 'Не удалось зарегистрироваться')
+      if (err instanceof ApiError && err.status === 409) setError('Этот email уже зарегистрирован')
+      else if (err instanceof ApiError && err.status === 400) {
+        setError(inviteCode ? 'Неверный или истёкший код приглашения' : 'Нужен код приглашения')
+      } else setError('Не удалось зарегистрироваться')
       setLoading(false)
     }
   }
@@ -113,6 +159,15 @@ export function RegisterPage() {
               placeholder="Минимум 8 символов"
               minLength={8}
               autoComplete="new-password"
+            />
+            <Field
+              id="register-invite"
+              label="Код приглашения"
+              type="text"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
+              placeholder="Получен от администратора"
+              autoComplete="off"
             />
 
             {error && (
