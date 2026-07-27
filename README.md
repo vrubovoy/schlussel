@@ -33,27 +33,41 @@ every request.
 
 This repo has two parts:
 
-- the root package — the Hono API (accounts, login/register, JWT issuance, JWKS)
-- `web/` — the hosted login/register pages every other service redirects to, plus
-  `/account`, the single unified account settings page (password, delete account) every
-  service's header links out to instead of showing its own
+- the root package — the Hono API (accounts, login/register, invites, JWT issuance,
+  JWKS, admin user/invite management, an OpenAPI spec)
+- `web/` — the hosted login/register pages every other service redirects to, `/account`
+  (the single unified account settings page every service's header links out to instead
+  of showing its own), `/admin` (admin-only user/invite management), and `/docs` (an
+  admin-only Swagger UI for this service's own API)
 
 ### The unified account settings contract
 
 Every Schloss service has one settings surface for things it owns itself (a per-service
 preference, a theme, a currency default) and none of them should ever build a second
-password/delete-account page of their own — that lives exactly once, here, at `/account`.
-A new service wires this up the same three-line way it already wires up login:
+password/delete-account page of their own — that lives exactly once, here, at `/account`
+(editable name, password, active sessions with per-session revoke and "log out
+everywhere", delete account). A new service wires this up the same three-line way it
+already wires up login:
 
 1. Copy the `buildSchluesselAccountUrl(currentPath, origin?)` helper (see kuvert's or
    schloss's own `lib/authRedirect.ts` for the exact shape — same pattern as the
    existing `buildSchluesselLoginUrl`/`buildSchluesselLogoutUrl` helpers, just a plain
    link with a `return_to`, no PKCE needed since nothing crosses back with a token).
 2. Pass `onSettings={() => { window.location.href = buildSchluesselAccountUrl(window.location.pathname) }}`
-   to the shared `Header` component instead of routing to a local page.
+   to the shared `Header` component instead of routing to a local page — it renders as
+   the avatar becoming a clickable button, not a separate settings icon.
 3. Keep any real per-service settings (a sidebar page, a preferences panel) reachable
-   from the service's own navigation — just not from the header's gear icon, which is
+   from the service's own navigation — just not from the header's avatar, which is
    reserved for this page.
+
+### Registration is invite-gated
+
+`POST /register` requires an admin-issued, single-use invite code, except for the very
+first account on a fresh install (which becomes the admin). Admins generate invites —
+and manage users, view active sessions, force-log-out an account, or delete one — from
+`/admin`. There's no self-service email change or 2FA yet; both are explicitly out of
+scope for now (no mail-sending infrastructure exists on the platform to verify a new
+address).
 
 ## Local development
 
