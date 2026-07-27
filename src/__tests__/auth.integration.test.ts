@@ -38,10 +38,11 @@ beforeAll(async () => {
 
   // Dynamic imports so env vars are already set when modules run their
   // top-level code.
-  const [keysModule, authModule, dbModule, migratorModule, honoModule] =
+  const [keysModule, authModule, adminModule, dbModule, migratorModule, honoModule] =
     await Promise.all([
       import('../utils/keys.js'),
       import('../routes/auth.js'),
+      import('../routes/admin.js'),
       import('../db/index.js'),
       import('drizzle-orm/better-sqlite3/migrator'),
       import('hono'),
@@ -49,6 +50,7 @@ beforeAll(async () => {
 
   const { initKeys, getJwks } = keysModule
   const { authRouter } = authModule
+  const { adminRouter } = adminModule
   const { db, sqlite: sqliteInstance } = dbModule
   const { migrate } = migratorModule
   const { Hono } = honoModule
@@ -62,6 +64,9 @@ beforeAll(async () => {
   testApp.get('/.well-known/jwks.json', (c) => c.json(getJwks()))
   testApp.get('/health', (c) => c.json({ status: 'ok' }))
   testApp.route('/auth', authRouter)
+  // Mounted alongside authRouter, matching production (src/index.ts) -
+  // several tests below mint a real invite to register a second user.
+  testApp.route('/auth', adminRouter)
 
   app = testApp
 })
@@ -109,14 +114,26 @@ async function registerUser(
   email = 'alice@example.com',
   password = 'password123',
   name = 'Alice',
+  inviteCode?: string,
 ) {
-  const res = await post('/auth/register', { email, password, name })
+  const res = await post('/auth/register', { email, password, name, ...(inviteCode ? { inviteCode } : {}) })
   return res
 }
 
 async function loginUser(email = 'alice@example.com', password = 'password123') {
   const res = await post('/auth/login', { email, password })
   return res
+}
+
+// Mints a real invite via the admin-only HTTP endpoint (not a direct DB
+// insert) so tests that need a second user in the same beforeEach-wiped
+// table exercise the same code path production traffic does. Requires an
+// admin's own access token - the first user registered in any given test
+// already is one.
+async function mintInvite(adminAccessToken: string): Promise<string> {
+  const res = await post('/auth/invites', {}, { Authorization: `Bearer ${adminAccessToken}` })
+  const body = await res.json() as { code: string }
+  return body.code
 }
 
 /** Returns the value of the named cookie from a Response, or null. */
@@ -209,7 +226,10 @@ describe('POST /auth/register', () => {
 
   it('second registered user gets user role', async () => {
     await registerUser('alice@example.com', 'password123', 'Alice')
-    const res = await registerUser('bob@example.com', 'password456', 'Bob')
+    const aliceLogin = await loginUser('alice@example.com', 'password123')
+    const aliceBody = await aliceLogin.json() as Record<string, unknown>
+    const inviteCode = await mintInvite(aliceBody['accessToken'] as string)
+    const res = await registerUser('bob@example.com', 'password456', 'Bob', inviteCode)
     expect(res.status).toBe(201)
     const body = await res.json() as Record<string, unknown>
     expect(body['role']).toBe('user')
@@ -698,10 +718,12 @@ describe('GET /auth/me', () => {
 
   it('returns correct data for each of two independently registered users', async () => {
     // Register a second user
+    const inviteCode = await mintInvite(accessToken)
     await post('/auth/register', {
       email: 'bob@example.com',
       password: 'bobpassword',
       name: 'Bob',
+      inviteCode,
     })
     const bobLogin = await post('/auth/login', {
       email: 'bob@example.com',
@@ -1333,7 +1355,8 @@ describe('DELETE /auth/account', () => {
   })
 
   it('does not affect a second, independently registered user', async () => {
-    await post('/auth/register', { email: 'bob@example.com', password: 'bobpassword', name: 'Bob' })
+    const inviteCode = await mintInvite(accessToken)
+    await post('/auth/register', { email: 'bob@example.com', password: 'bobpassword', name: 'Bob', inviteCode })
     const bobLogin = await post('/auth/login', { email: 'bob@example.com', password: 'bobpassword' })
     const bobBody = await bobLogin.json() as Record<string, unknown>
     const bobToken = bobBody['accessToken'] as string
@@ -1509,7 +1532,8 @@ describe('PATCH /auth/name', () => {
   })
 
   it('does not affect a second, independently registered user', async () => {
-    await post('/auth/register', { email: 'bob@example.com', password: 'bobpassword', name: 'Bob' })
+    const inviteCode = await mintInvite(accessToken)
+    await post('/auth/register', { email: 'bob@example.com', password: 'bobpassword', name: 'Bob', inviteCode })
     const bobLogin = await post('/auth/login', { email: 'bob@example.com', password: 'bobpassword' })
     const bobBody = await bobLogin.json() as Record<string, unknown>
     const bobToken = bobBody['accessToken'] as string
@@ -1576,12 +1600,16 @@ describe('GET /auth/sessions', () => {
 
   it('only returns sessions belonging to the calling user', async () => {
     await post('/auth/register', { email: 'alice@example.com', password: 'password123', name: 'Alice' })
-    await post('/auth/register', { email: 'bob@example.com', password: 'bobpassword', name: 'Bob' })
+    // Single login for Alice - also used to mint Bob's invite, so this
+    // test still creates exactly one session per user, matching the
+    // assertions below.
     const aliceLogin = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
-    const bobLogin = await post('/auth/login', { email: 'bob@example.com', password: 'bobpassword' })
     const aliceBody = await aliceLogin.json() as Record<string, unknown>
-    const bobBody = await bobLogin.json() as Record<string, unknown>
     const aliceToken = aliceBody['accessToken'] as string
+    const inviteCode = await mintInvite(aliceToken)
+    await post('/auth/register', { email: 'bob@example.com', password: 'bobpassword', name: 'Bob', inviteCode })
+    const bobLogin = await post('/auth/login', { email: 'bob@example.com', password: 'bobpassword' })
+    const bobBody = await bobLogin.json() as Record<string, unknown>
     const bobToken = bobBody['accessToken'] as string
 
     const aliceRes = await getSessions(aliceToken)
@@ -1696,12 +1724,13 @@ describe('DELETE /auth/sessions/:id', () => {
 
   it('returns 404 when the id belongs to a different user, and does not delete it', async () => {
     await post('/auth/register', { email: 'alice@example.com', password: 'password123', name: 'Alice' })
-    await post('/auth/register', { email: 'bob@example.com', password: 'bobpassword', name: 'Bob' })
     const aliceLogin = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
-    const bobLogin = await post('/auth/login', { email: 'bob@example.com', password: 'bobpassword' })
     const aliceBody = await aliceLogin.json() as Record<string, unknown>
-    const bobBody = await bobLogin.json() as Record<string, unknown>
     const aliceToken = aliceBody['accessToken'] as string
+    const inviteCode = await mintInvite(aliceToken)
+    await post('/auth/register', { email: 'bob@example.com', password: 'bobpassword', name: 'Bob', inviteCode })
+    const bobLogin = await post('/auth/login', { email: 'bob@example.com', password: 'bobpassword' })
+    const bobBody = await bobLogin.json() as Record<string, unknown>
     const bobToken = bobBody['accessToken'] as string
     const aliceCookie = getCookieValue(aliceLogin, 'schloss_refresh') ?? ''
 
@@ -1888,12 +1917,13 @@ describe('DELETE /auth/sessions', () => {
 
   it('does not affect a different users sessions', async () => {
     await post('/auth/register', { email: 'alice@example.com', password: 'password123', name: 'Alice' })
-    await post('/auth/register', { email: 'bob@example.com', password: 'bobpassword', name: 'Bob' })
     const aliceLogin = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
-    const bobLogin = await post('/auth/login', { email: 'bob@example.com', password: 'bobpassword' })
     const aliceBody = await aliceLogin.json() as Record<string, unknown>
-    const bobBody = await bobLogin.json() as Record<string, unknown>
     const aliceToken = aliceBody['accessToken'] as string
+    const inviteCode = await mintInvite(aliceToken)
+    await post('/auth/register', { email: 'bob@example.com', password: 'bobpassword', name: 'Bob', inviteCode })
+    const bobLogin = await post('/auth/login', { email: 'bob@example.com', password: 'bobpassword' })
+    const bobBody = await bobLogin.json() as Record<string, unknown>
     const bobToken = bobBody['accessToken'] as string
     const bobCookie = getCookieValue(bobLogin, 'schloss_refresh') ?? ''
 

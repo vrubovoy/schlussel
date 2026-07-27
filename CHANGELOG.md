@@ -40,8 +40,29 @@ fit best; add a new section if none fits.
   the still-valid session). This new page does the logout same-origin
   (where the cookie is actually readable) via a real browser
   navigation, then bounces back to `return_to`.
+- Restricted self-registration: `POST /auth/register` now requires an
+  admin-issued, single-use invite code (except for the very first user on
+  a fresh install). Invite redemption is atomic - a conditional update
+  inside a transaction, so two concurrent registrations racing the same
+  code can't both succeed. New `PATCH /admin/users/:id/role`,
+  `DELETE /admin/users/:id/sessions` (force-logout), and
+  `DELETE /admin/users/:id` (password-confirmed) admin endpoints, all
+  guarded against leaving the platform with zero admins.
+- Added an admin-only OpenAPI spec (`GET /auth/openapi.json`) generated
+  from the existing route Zod schemas, purely additive/descriptive - it
+  has no effect on runtime request validation.
 
 ## UI
+- New `/admin` page: user management (role, force-logout, delete),
+  invite creation/journal with a shareable `/register?invite=...` link,
+  and a small platform-stats overview.
+- New `/docs` page: an admin-only Swagger UI for this service's own API,
+  fed by the new spec endpoint.
+- `RegisterPage` gained an invite-code field (prefillable from
+  `?invite=`) and no longer bounces a bare invite link away before
+  showing the form - previously only an externally-supplied
+  `return_to`/`code_challenge` pair counted as a legitimate reason to
+  render it.
 - Added a header (brand mark linking back to schloss) and footer to the
   login/register pages and the return_to error page - previously bare
   form cards with no chrome connecting them to the rest of the platform,

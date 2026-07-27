@@ -27,6 +27,44 @@ export interface Session {
   current: boolean
 }
 
+export type InviteStatus = 'pending' | 'used' | 'expired' | 'revoked'
+
+export interface Invite {
+  id: string
+  createdByName: string | null
+  createdAt: string
+  expiresAt: string
+  revokedAt: string | null
+  usedAt: string | null
+  usedByName: string | null
+  usedByEmail: string | null
+  status: InviteStatus
+}
+
+export interface CreatedInvite {
+  id: string
+  code: string
+  createdAt: string
+  expiresAt: string
+}
+
+export interface AdminUser {
+  id: string
+  email: string
+  name: string
+  role: 'admin' | 'user'
+  createdAt: string
+  activeSessionCount: number
+}
+
+export interface AdminStats {
+  totalUsers: number
+  totalActiveSessions: number
+  pendingInvites: number
+  newUsersLast30d: number
+  registrationsByDay: { date: string; count: number }[]
+}
+
 export class ApiError extends Error {
   status: number
 
@@ -124,7 +162,53 @@ export function login(email: string, password: string, codeChallenge: string): P
 // The register endpoint only returns the created user, not a session — log
 // in right after so the caller gets the same { code } shape login()
 // produces, letting both pages share one success/redirect path.
-export async function register(email: string, password: string, name: string, codeChallenge: string): Promise<LoginResponse> {
-  await post<AuthUser>('/register', { email, password, name })
+// inviteCode is required by the server for every registration except the
+// platform's very first user.
+export async function register(
+  email: string,
+  password: string,
+  name: string,
+  codeChallenge: string,
+  inviteCode?: string,
+): Promise<LoginResponse> {
+  await post<AuthUser>('/register', { email, password, name, inviteCode })
   return login(email, password, codeChallenge)
+}
+
+// ── Admin ────────────────────────────────────────────────────────────────
+
+export function createInvite(accessToken: string, expiresInDays?: number): Promise<CreatedInvite> {
+  return authed<CreatedInvite>('POST', '/invites', accessToken, { expiresInDays })
+}
+
+export function listInvites(accessToken: string): Promise<Invite[]> {
+  return authed<Invite[]>('GET', '/invites', accessToken)
+}
+
+export function revokeInvite(accessToken: string, id: string): Promise<{ ok: true }> {
+  return authed('DELETE', `/invites/${id}`, accessToken)
+}
+
+export function listAdminUsers(accessToken: string): Promise<AdminUser[]> {
+  return authed<AdminUser[]>('GET', '/admin/users', accessToken)
+}
+
+export function changeUserRole(accessToken: string, id: string, role: 'admin' | 'user'): Promise<AuthUser> {
+  return authed<AuthUser>('PATCH', `/admin/users/${id}/role`, accessToken, { role })
+}
+
+export function forceLogoutUser(accessToken: string, id: string): Promise<{ ok: true }> {
+  return authed('DELETE', `/admin/users/${id}/sessions`, accessToken)
+}
+
+export function deleteUserAsAdmin(accessToken: string, id: string, password: string): Promise<{ ok: true }> {
+  return authed('DELETE', `/admin/users/${id}`, accessToken, { password })
+}
+
+export function fetchAdminStats(accessToken: string): Promise<AdminStats> {
+  return authed<AdminStats>('GET', '/admin/stats', accessToken)
+}
+
+export function fetchOpenApiSpec(accessToken: string): Promise<Record<string, unknown>> {
+  return authed<Record<string, unknown>>('GET', '/openapi.json', accessToken)
 }

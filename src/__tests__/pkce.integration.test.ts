@@ -35,10 +35,11 @@ let sqlite: import('better-sqlite3').Database
 beforeAll(async () => {
   mkdirSync(KEYS_DIR, { recursive: true })
 
-  const [keysModule, authModule, dbModule, migratorModule, honoModule] =
+  const [keysModule, authModule, adminModule, dbModule, migratorModule, honoModule] =
     await Promise.all([
       import('../utils/keys.js'),
       import('../routes/auth.js'),
+      import('../routes/admin.js'),
       import('../db/index.js'),
       import('drizzle-orm/better-sqlite3/migrator'),
       import('hono'),
@@ -46,6 +47,7 @@ beforeAll(async () => {
 
   const { initKeys } = keysModule
   const { authRouter } = authModule
+  const { adminRouter } = adminModule
   const { db, sqlite: sqliteInstance } = dbModule
   const { migrate } = migratorModule
   const { Hono } = honoModule
@@ -57,6 +59,9 @@ beforeAll(async () => {
 
   const testApp = new Hono()
   testApp.route('/auth', authRouter)
+  // Mounted alongside authRouter, matching production (src/index.ts) -
+  // one test below needs to mint a real invite to register a second user.
+  testApp.route('/auth', adminRouter)
 
   app = testApp
 })
@@ -89,8 +94,18 @@ async function registerUser(
   email = 'alice@example.com',
   password = 'password123',
   name = 'Alice',
+  inviteCode?: string,
 ) {
-  return post('/auth/register', { email, password, name })
+  return post('/auth/register', { email, password, name, ...(inviteCode ? { inviteCode } : {}) })
+}
+
+// Mints a real invite via the admin-only HTTP endpoint (mounted alongside
+// authRouter above), for tests that register a second user in a
+// beforeEach that already registered a first (admin) one.
+async function mintInvite(adminAccessToken: string): Promise<string> {
+  const res = await post('/auth/invites', {}, { Authorization: `Bearer ${adminAccessToken}` })
+  const body = await res.json() as { code: string }
+  return body.code
 }
 
 /** A syntactically valid (but not necessarily real-SHA256) 43-char base64url code_challenge. */
@@ -397,6 +412,7 @@ describe('POST /auth/token', () => {
 
 describe('POST /auth/refresh — codeChallenge extension', () => {
   let refreshCookie: string
+  let aliceAccessToken: string
 
   beforeEach(async () => {
     await registerUser()
@@ -406,6 +422,8 @@ describe('POST /auth/refresh — codeChallenge extension', () => {
     })
     refreshCookie = getCookieValue(loginRes, 'schloss_refresh') ?? ''
     expect(refreshCookie).not.toBe('')
+    const loginBody = await loginRes.json() as Record<string, unknown>
+    aliceAccessToken = loginBody['accessToken'] as string
     // jose uses second-precision iat; ensure a rotated token gets a
     // different iat (and thus a different signature) from the original.
     await new Promise((r) => setTimeout(r, 1100))
@@ -464,7 +482,8 @@ describe('POST /auth/refresh — codeChallenge extension', () => {
   })
 
   it('the issued code is bound to the correct user, distinct from another logged-in user', async () => {
-    await registerUser('bob@example.com', 'bobpassword', 'Bob')
+    const inviteCode = await mintInvite(aliceAccessToken)
+    await registerUser('bob@example.com', 'bobpassword', 'Bob', inviteCode)
     const bobLogin = await post('/auth/login', {
       email: 'bob@example.com',
       password: 'bobpassword',
