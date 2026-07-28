@@ -112,6 +112,11 @@ fit best; add a new section if none fits.
   image needed GitHub Packages auth too, despite never using
   `@zudar107/schloss-ui` itself. Added the same BuildKit-secret
   `.npmrc` auth already used in `web/Dockerfile`.
+- Bumped `schloss-ui` for `StatTile`'s row-misalignment fix (a long
+  wrapped label no longer pushes its tile's value down relative to its
+  row's other tiles) and `Badge`'s baseline-mismatch fix against plain
+  text - both hit on `/admin`'s overview and invites journal while
+  testing.
 
 ## Docs
 - README, AGPL-3.0 LICENSE, CONTRIBUTING.md.
