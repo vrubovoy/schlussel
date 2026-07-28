@@ -120,8 +120,11 @@ async function registerUser(
   return res
 }
 
+// Sends the same trust header schlussel-web's own Caddyfile adds on its
+// /auth/* passthrough - without it, /login now correctly withholds the
+// session cookie (see the isTrustedOrigin gate this helper is simulating).
 async function loginUser(email = 'alice@example.com', password = 'password123') {
-  const res = await post('/auth/login', { email, password })
+  const res = await post('/auth/login', { email, password }, { 'X-Schlussel-Frontend': '1' })
   return res
 }
 
@@ -374,6 +377,18 @@ describe('POST /auth/login', () => {
     expect((cookie ?? '').length).toBeGreaterThan(0)
   })
 
+  // Security regression test: without the trust header, this reaches the
+  // exact same code path a consumer app's own /auth/* proxy would hit for
+  // a plain POST (no codeChallenge) - it must not plant a session cookie
+  // on whatever origin it's reached through.
+  it('without X-Schlussel-Frontend: returns 200 with accessToken but sets no schloss_refresh cookie', async () => {
+    const res = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
+    expect(res.status).toBe(200)
+    const body = await res.json() as Record<string, unknown>
+    expect(typeof body['accessToken']).toBe('string')
+    expect(getCookieValue(res, 'schloss_refresh')).toBeNull()
+  })
+
   it('sets the cookie as HttpOnly', async () => {
     const res = await loginUser()
     const raw = getRawCookie(res, 'schloss_refresh')
@@ -422,6 +437,34 @@ describe('POST /auth/login', () => {
     expect(wrongPass.status).toBe(401)
   })
 
+  // Uses its own fake source IP throughout so it can't share (or pollute)
+  // the bucket every other test in this file implicitly uses (none of them
+  // set X-Forwarded-For, so they all fall back to the same 'unknown' key).
+  it('returns 429 after enough consecutive failed attempts from the same source, and a correct login from elsewhere is unaffected', async () => {
+    const attackerIp = { 'X-Forwarded-For': '198.51.100.1' }
+    for (let i = 0; i < 20; i++) {
+      const res = await post(
+        '/auth/login',
+        { email: 'alice@example.com', password: 'wrongpassword' },
+        attackerIp,
+      )
+      expect(res.status).toBe(401)
+    }
+    const limited = await post(
+      '/auth/login',
+      { email: 'alice@example.com', password: 'wrongpassword' },
+      attackerIp,
+    )
+    expect(limited.status).toBe(429)
+
+    const fromElsewhere = await post(
+      '/auth/login',
+      { email: 'alice@example.com', password: 'password123' },
+      { 'X-Forwarded-For': '198.51.100.2', 'X-Schlussel-Frontend': '1' },
+    )
+    expect(fromElsewhere.status).toBe(200)
+  })
+
   it('access token is a JWT with three dot-separated parts', async () => {
     const res = await loginUser()
     const body = await res.json() as Record<string, unknown>
@@ -451,7 +494,7 @@ describe('POST /auth/refresh', () => {
     const loginRes = await post('/auth/login', {
       email: 'alice@example.com',
       password: 'password123',
-    })
+    }, { 'X-Schlussel-Frontend': '1' })
     refreshTokenCookie = getCookieValue(loginRes, 'schloss_refresh') ?? ''
     // jose uses second-precision iat. Wait to ensure the rotated token gets a
     // different iat (and thus a different signature) from the original.
@@ -562,7 +605,7 @@ describe('POST /auth/logout', () => {
     const loginRes = await post('/auth/login', {
       email: 'alice@example.com',
       password: 'password123',
-    })
+    }, { 'X-Schlussel-Frontend': '1' })
     refreshTokenCookie = getCookieValue(loginRes, 'schloss_refresh') ?? ''
   })
 
@@ -640,7 +683,7 @@ describe('GET /auth/me', () => {
     const loginRes = await post('/auth/login', {
       email: 'alice@example.com',
       password: 'password123',
-    })
+    }, { 'X-Schlussel-Frontend': '1' })
     const body = await loginRes.json() as Record<string, unknown>
     accessToken = body['accessToken'] as string
   })
@@ -728,7 +771,7 @@ describe('GET /auth/me', () => {
     const bobLogin = await post('/auth/login', {
       email: 'bob@example.com',
       password: 'bobpassword',
-    })
+    }, { 'X-Schlussel-Frontend': '1' })
     const bobBody = await bobLogin.json() as Record<string, unknown>
     const bobToken = bobBody['accessToken'] as string
 
@@ -1045,7 +1088,7 @@ describe('PATCH /auth/password', () => {
     const loginRes = await post('/auth/login', {
       email: 'alice@example.com',
       password: 'password123',
-    })
+    }, { 'X-Schlussel-Frontend': '1' })
     const body = await loginRes.json() as Record<string, unknown>
     accessToken = body['accessToken'] as string
     refreshTokenCookie = getCookieValue(loginRes, 'schloss_refresh') ?? ''
@@ -1180,7 +1223,7 @@ describe('PATCH /auth/password', () => {
       { currentPassword: 'password123', newPassword: 'newpassword123' },
       { Authorization: `Bearer ${accessToken}` },
     )
-    const res = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
+    const res = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
     expect(res.status).toBe(401)
   })
 
@@ -1203,6 +1246,7 @@ describe('PATCH /auth/password', () => {
 describe('DELETE /auth/account', () => {
   let accessToken: string
   let refreshTokenCookie: string
+  let secondAdminAccessToken: string
 
   beforeEach(async () => {
     await post('/auth/register', {
@@ -1213,10 +1257,34 @@ describe('DELETE /auth/account', () => {
     const loginRes = await post('/auth/login', {
       email: 'alice@example.com',
       password: 'password123',
-    })
+    }, { 'X-Schlussel-Frontend': '1' })
     const body = await loginRes.json() as Record<string, unknown>
     accessToken = body['accessToken'] as string
     refreshTokenCookie = getCookieValue(loginRes, 'schloss_refresh') ?? ''
+
+    // Alice bootstraps as the platform's first user, i.e. its sole admin -
+    // these tests are about self-deletion mechanics, not the last-admin
+    // guard (which has its own dedicated tests below), so promote a
+    // second user to admin first to keep her deletable throughout.
+    const inviteCode = await mintInvite(accessToken)
+    await post('/auth/register', {
+      email: 'second-admin@example.com',
+      password: 'password123',
+      name: 'Second Admin',
+      inviteCode,
+    })
+    const secondAdminLogin = await post('/auth/login', {
+      email: 'second-admin@example.com',
+      password: 'password123',
+    }, { 'X-Schlussel-Frontend': '1' })
+    const secondAdminBody = await secondAdminLogin.json() as Record<string, unknown>
+    secondAdminAccessToken = secondAdminBody['accessToken'] as string
+    const secondAdminUser = secondAdminBody['user'] as Record<string, unknown>
+    await patch(
+      `/auth/admin/users/${secondAdminUser['id']}/role`,
+      { role: 'admin' },
+      { Authorization: `Bearer ${accessToken}` },
+    )
   })
 
   it('returns 401 when Authorization header is missing', async () => {
@@ -1304,10 +1372,14 @@ describe('DELETE /auth/account', () => {
       { password: 'password123' },
       { Authorization: `Bearer ${accessToken}` },
     )
+    // The platform isn't empty anymore (second-admin is still around from
+    // the beforeEach), so re-registering this email needs a fresh invite.
+    const inviteCode = await mintInvite(secondAdminAccessToken)
     const res = await post('/auth/register', {
       email: 'alice@example.com',
       password: 'password123',
       name: 'Alice',
+      inviteCode,
     })
     expect(res.status).toBe(201)
   })
@@ -1318,7 +1390,7 @@ describe('DELETE /auth/account', () => {
       { password: 'password123' },
       { Authorization: `Bearer ${accessToken}` },
     )
-    const res = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
+    const res = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
     expect(res.status).toBe(401)
   })
 
@@ -1357,7 +1429,7 @@ describe('DELETE /auth/account', () => {
   it('does not affect a second, independently registered user', async () => {
     const inviteCode = await mintInvite(accessToken)
     await post('/auth/register', { email: 'bob@example.com', password: 'bobpassword', name: 'Bob', inviteCode })
-    const bobLogin = await post('/auth/login', { email: 'bob@example.com', password: 'bobpassword' })
+    const bobLogin = await post('/auth/login', { email: 'bob@example.com', password: 'bobpassword' }, { 'X-Schlussel-Frontend': '1' })
     const bobBody = await bobLogin.json() as Record<string, unknown>
     const bobToken = bobBody['accessToken'] as string
 
@@ -1374,6 +1446,34 @@ describe('DELETE /auth/account', () => {
     expect(bobMe.status).toBe(200)
     const bobMeBody = await bobMe.json() as Record<string, unknown>
     expect(bobMeBody['email']).toBe('bob@example.com')
+  })
+
+  it('returns 409 and does not delete the account when the caller is the sole remaining admin', async () => {
+    // Demote the beforeEach's second admin back to a plain user, so Alice
+    // (accessToken) is genuinely the only admin left.
+    const usersRes = await app.request('/auth/admin/users', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    const allUsers = await usersRes.json() as Record<string, unknown>[]
+    const secondAdmin = allUsers.find((u) => u['email'] === 'second-admin@example.com')!
+    await patch(
+      `/auth/admin/users/${secondAdmin['id']}/role`,
+      { role: 'user' },
+      { Authorization: `Bearer ${accessToken}` },
+    )
+
+    const res = await del(
+      '/auth/account',
+      { password: 'password123' },
+      { Authorization: `Bearer ${accessToken}` },
+    )
+    expect(res.status).toBe(409)
+
+    // Account still intact: the same access token continues to work.
+    const meRes = await app.request('/auth/me', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    expect(meRes.status).toBe(200)
   })
 })
 
@@ -1421,7 +1521,7 @@ describe('PATCH /auth/name', () => {
     const loginRes = await post('/auth/login', {
       email: 'alice@example.com',
       password: 'password123',
-    })
+    }, { 'X-Schlussel-Frontend': '1' })
     const body = await loginRes.json() as Record<string, unknown>
     accessToken = body['accessToken'] as string
   })
@@ -1523,7 +1623,7 @@ describe('PATCH /auth/name', () => {
 
   it('leaves password and email untouched — a fresh login with the original password still works', async () => {
     await patch('/auth/name', { name: 'Alicia' }, { Authorization: `Bearer ${accessToken}` })
-    const res = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
+    const res = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
     expect(res.status).toBe(200)
     const body = await res.json() as Record<string, unknown>
     const user = body['user'] as Record<string, unknown>
@@ -1534,7 +1634,7 @@ describe('PATCH /auth/name', () => {
   it('does not affect a second, independently registered user', async () => {
     const inviteCode = await mintInvite(accessToken)
     await post('/auth/register', { email: 'bob@example.com', password: 'bobpassword', name: 'Bob', inviteCode })
-    const bobLogin = await post('/auth/login', { email: 'bob@example.com', password: 'bobpassword' })
+    const bobLogin = await post('/auth/login', { email: 'bob@example.com', password: 'bobpassword' }, { 'X-Schlussel-Frontend': '1' })
     const bobBody = await bobLogin.json() as Record<string, unknown>
     const bobToken = bobBody['accessToken'] as string
 
@@ -1565,7 +1665,7 @@ describe('GET /auth/sessions', () => {
     const loginRes = await post(
       '/auth/login',
       { email: 'alice@example.com', password: 'password123' },
-      { 'User-Agent': 'TestBrowser/1.0', 'X-Forwarded-For': '203.0.113.5' },
+      { 'User-Agent': 'TestBrowser/1.0', 'X-Forwarded-For': '203.0.113.5', 'X-Schlussel-Frontend': '1' },
     )
     const loginBody = await loginRes.json() as Record<string, unknown>
     const accessToken = loginBody['accessToken'] as string
@@ -1588,7 +1688,7 @@ describe('GET /auth/sessions', () => {
 
   it('ipAddress is null when the login request had no X-Forwarded-For header', async () => {
     await post('/auth/register', { email: 'alice@example.com', password: 'password123', name: 'Alice' })
-    const loginRes = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
+    const loginRes = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
     const loginBody = await loginRes.json() as Record<string, unknown>
     const accessToken = loginBody['accessToken'] as string
 
@@ -1603,12 +1703,12 @@ describe('GET /auth/sessions', () => {
     // Single login for Alice - also used to mint Bob's invite, so this
     // test still creates exactly one session per user, matching the
     // assertions below.
-    const aliceLogin = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
+    const aliceLogin = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
     const aliceBody = await aliceLogin.json() as Record<string, unknown>
     const aliceToken = aliceBody['accessToken'] as string
     const inviteCode = await mintInvite(aliceToken)
     await post('/auth/register', { email: 'bob@example.com', password: 'bobpassword', name: 'Bob', inviteCode })
-    const bobLogin = await post('/auth/login', { email: 'bob@example.com', password: 'bobpassword' })
+    const bobLogin = await post('/auth/login', { email: 'bob@example.com', password: 'bobpassword' }, { 'X-Schlussel-Frontend': '1' })
     const bobBody = await bobLogin.json() as Record<string, unknown>
     const bobToken = bobBody['accessToken'] as string
 
@@ -1624,8 +1724,8 @@ describe('GET /auth/sessions', () => {
 
   it('marks only the row matching the sent cookie as current: true', async () => {
     await post('/auth/register', { email: 'alice@example.com', password: 'password123', name: 'Alice' })
-    const login1 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
-    const login2 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
+    const login1 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
+    const login2 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
     const login1Body = await login1.json() as Record<string, unknown>
     const accessToken = login1Body['accessToken'] as string
     const cookie1 = getCookieValue(login1, 'schloss_refresh') ?? ''
@@ -1645,8 +1745,8 @@ describe('GET /auth/sessions', () => {
 
   it('every row has current: false when no cookie is sent', async () => {
     await post('/auth/register', { email: 'alice@example.com', password: 'password123', name: 'Alice' })
-    const login1 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
-    await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
+    const login1 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
+    await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
     const login1Body = await login1.json() as Record<string, unknown>
     const accessToken = login1Body['accessToken'] as string
 
@@ -1658,8 +1758,8 @@ describe('GET /auth/sessions', () => {
 
   it('two logins for the same user produce two distinct rows', async () => {
     await post('/auth/register', { email: 'alice@example.com', password: 'password123', name: 'Alice' })
-    const login1 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
-    await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
+    const login1 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
+    await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
     const login1Body = await login1.json() as Record<string, unknown>
     const accessToken = login1Body['accessToken'] as string
 
@@ -1678,7 +1778,7 @@ describe('GET /auth/sessions', () => {
     })
     const registerBody = await registerRes.json() as Record<string, unknown>
     const userId = registerBody['id'] as string
-    const loginRes = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
+    const loginRes = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
     const loginBody = await loginRes.json() as Record<string, unknown>
     const accessToken = loginBody['accessToken'] as string
 
@@ -1711,7 +1811,7 @@ describe('DELETE /auth/sessions/:id', () => {
 
   it('returns 404 for a nonexistent session id and deletes nothing', async () => {
     await post('/auth/register', { email: 'alice@example.com', password: 'password123', name: 'Alice' })
-    const loginRes = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
+    const loginRes = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
     const loginBody = await loginRes.json() as Record<string, unknown>
     const accessToken = loginBody['accessToken'] as string
 
@@ -1724,12 +1824,12 @@ describe('DELETE /auth/sessions/:id', () => {
 
   it('returns 404 when the id belongs to a different user, and does not delete it', async () => {
     await post('/auth/register', { email: 'alice@example.com', password: 'password123', name: 'Alice' })
-    const aliceLogin = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
+    const aliceLogin = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
     const aliceBody = await aliceLogin.json() as Record<string, unknown>
     const aliceToken = aliceBody['accessToken'] as string
     const inviteCode = await mintInvite(aliceToken)
     await post('/auth/register', { email: 'bob@example.com', password: 'bobpassword', name: 'Bob', inviteCode })
-    const bobLogin = await post('/auth/login', { email: 'bob@example.com', password: 'bobpassword' })
+    const bobLogin = await post('/auth/login', { email: 'bob@example.com', password: 'bobpassword' }, { 'X-Schlussel-Frontend': '1' })
     const bobBody = await bobLogin.json() as Record<string, unknown>
     const bobToken = bobBody['accessToken'] as string
     const aliceCookie = getCookieValue(aliceLogin, 'schloss_refresh') ?? ''
@@ -1756,8 +1856,8 @@ describe('DELETE /auth/sessions/:id', () => {
 
   it('on success, returns 200 with { ok: true } and revokes only that session', async () => {
     await post('/auth/register', { email: 'alice@example.com', password: 'password123', name: 'Alice' })
-    const login1 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
-    const login2 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
+    const login1 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
+    const login2 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
     const login1Body = await login1.json() as Record<string, unknown>
     const accessToken = login1Body['accessToken'] as string
     const cookie1 = getCookieValue(login1, 'schloss_refresh') ?? ''
@@ -1790,7 +1890,7 @@ describe('DELETE /auth/sessions/:id', () => {
 
   it('clears the schloss_refresh cookie when the revoked session matches the cookie sent with the request', async () => {
     await post('/auth/register', { email: 'alice@example.com', password: 'password123', name: 'Alice' })
-    const login1 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
+    const login1 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
     const login1Body = await login1.json() as Record<string, unknown>
     const accessToken = login1Body['accessToken'] as string
     const cookie1 = getCookieValue(login1, 'schloss_refresh') ?? ''
@@ -1808,8 +1908,8 @@ describe('DELETE /auth/sessions/:id', () => {
 
   it('leaves the request cookie untouched when the revoked session is a different session for the same user', async () => {
     await post('/auth/register', { email: 'alice@example.com', password: 'password123', name: 'Alice' })
-    const login1 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
-    const login2 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
+    const login1 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
+    const login2 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
     const login1Body = await login1.json() as Record<string, unknown>
     const accessToken = login1Body['accessToken'] as string
     const cookie1 = getCookieValue(login1, 'schloss_refresh') ?? ''
@@ -1862,8 +1962,8 @@ describe('DELETE /auth/sessions', () => {
 
   it('invalidates every session for the calling user, including the one used to make the request', async () => {
     await post('/auth/register', { email: 'alice@example.com', password: 'password123', name: 'Alice' })
-    const login1 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
-    const login2 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
+    const login1 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
+    const login2 = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
     const login1Body = await login1.json() as Record<string, unknown>
     const accessToken = login1Body['accessToken'] as string
     const cookie1 = getCookieValue(login1, 'schloss_refresh') ?? ''
@@ -1887,7 +1987,7 @@ describe('DELETE /auth/sessions', () => {
 
   it('clears the callers own cookie even when no cookie was sent with the request', async () => {
     await post('/auth/register', { email: 'alice@example.com', password: 'password123', name: 'Alice' })
-    const loginRes = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
+    const loginRes = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
     const loginBody = await loginRes.json() as Record<string, unknown>
     const accessToken = loginBody['accessToken'] as string
 
@@ -1901,7 +2001,7 @@ describe('DELETE /auth/sessions', () => {
 
   it('does not set a fresh session cookie — the caller ends up fully logged out', async () => {
     await post('/auth/register', { email: 'alice@example.com', password: 'password123', name: 'Alice' })
-    const loginRes = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
+    const loginRes = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
     const loginBody = await loginRes.json() as Record<string, unknown>
     const accessToken = loginBody['accessToken'] as string
     const cookie = getCookieValue(loginRes, 'schloss_refresh') ?? ''
@@ -1917,12 +2017,12 @@ describe('DELETE /auth/sessions', () => {
 
   it('does not affect a different users sessions', async () => {
     await post('/auth/register', { email: 'alice@example.com', password: 'password123', name: 'Alice' })
-    const aliceLogin = await post('/auth/login', { email: 'alice@example.com', password: 'password123' })
+    const aliceLogin = await post('/auth/login', { email: 'alice@example.com', password: 'password123' }, { 'X-Schlussel-Frontend': '1' })
     const aliceBody = await aliceLogin.json() as Record<string, unknown>
     const aliceToken = aliceBody['accessToken'] as string
     const inviteCode = await mintInvite(aliceToken)
     await post('/auth/register', { email: 'bob@example.com', password: 'bobpassword', name: 'Bob', inviteCode })
-    const bobLogin = await post('/auth/login', { email: 'bob@example.com', password: 'bobpassword' })
+    const bobLogin = await post('/auth/login', { email: 'bob@example.com', password: 'bobpassword' }, { 'X-Schlussel-Frontend': '1' })
     const bobBody = await bobLogin.json() as Record<string, unknown>
     const bobToken = bobBody['accessToken'] as string
     const bobCookie = getCookieValue(bobLogin, 'schloss_refresh') ?? ''

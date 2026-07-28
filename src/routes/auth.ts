@@ -7,6 +7,7 @@ import { db } from '../db/index.js'
 import { users, refreshTokens, authCodes, invites, type User } from '../db/schema.js'
 import { hashPassword, verifyPassword } from '../utils/password.js'
 import { signAccessToken, signRefreshToken, verifyToken } from '../utils/jwt.js'
+import { isLoginRateLimited, recordLoginFailure, recordLoginSuccess } from '../utils/rateLimit.js'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 
 const REFRESH_TOKEN_MAX_AGE = 60 * 60 * 24 * 7 // 7 days in seconds
@@ -124,11 +125,10 @@ async function establishSession(c: RequestResponseContext, userId: string, meta:
 }
 
 // Issues a real access token plus, if `trusted`, a fresh session cookie -
-// shared by the no-PKCE /login branch (always trusted: like the PKCE
-// branch above, only ever reachable same-origin) and the /token exchange
-// (trusted only per isTrustedOrigin, since it's the one endpoint genuinely
-// called through consumer apps' own proxies). Both hand the access token
-// straight back in the response body regardless.
+// shared by the no-PKCE /login branch and the /token exchange, both gated
+// on isTrustedOrigin since either can in principle be reached through a
+// consumer app's own /auth/* proxy. Both hand the access token straight
+// back in the response body regardless.
 async function issueSession(c: RequestResponseContext, user: User, trusted: boolean) {
   const accessToken = await signAccessToken({
     sub: user.id,
@@ -255,10 +255,17 @@ authRouter.post('/register', zValidator('json', registerSchema), async (c) => {
 authRouter.post('/login', zValidator('json', loginSchema), async (c) => {
   const { email, password, codeChallenge } = c.req.valid('json')
 
+  const rateLimitKey = requestMeta(c).ipAddress ?? 'unknown'
+  if (isLoginRateLimited(rateLimitKey)) {
+    return c.json({ error: 'Too many attempts - try again later' }, 429)
+  }
+
   const user = await db.select().from(users).where(eq(users.email, email)).get()
   if (!user || !(await verifyPassword(password, user.passwordHash))) {
+    recordLoginFailure(rateLimitKey)
     return c.json({ error: 'Invalid credentials' }, 401)
   }
+  recordLoginSuccess(rateLimitKey)
 
   // PKCE handoff: issue a short-lived one-time code instead of a real
   // token, so the token itself never has to travel through a URL - the
@@ -276,9 +283,12 @@ authRouter.post('/login', zValidator('json', loginSchema), async (c) => {
     return c.json({ code })
   }
 
-  // No-PKCE branch: like the PKCE branch above, only ever reachable
-  // same-origin - always trusted.
-  return c.json(await issueSession(c, user, true))
+  // No-PKCE branch: intended to only ever be reached same-origin, but
+  // codeChallenge is optional here, so nothing stops a caller reaching it
+  // through a consumer app's own /auth/* proxy - gate the cookie the same
+  // way the PKCE branch above and /token below already do, rather than
+  // assuming same-origin.
+  return c.json(await issueSession(c, user, isTrustedOrigin(c)))
 })
 
 authRouter.post('/token', zValidator('json', tokenSchema), async (c) => {
@@ -435,12 +445,31 @@ authRouter.delete('/account', zValidator('json', deleteAccountSchema), async (c)
     return c.json({ error: 'Invalid password' }, 401)
   }
 
-  // Cascades refresh_tokens and auth_codes (see schema.ts's onDelete:
-  // 'cascade' on both, and foreign_keys=ON in db/index.ts) - no manual
-  // cleanup needed here. Other services' own local copies of this user's
-  // id are left as-is; without a valid session they can never be issued
-  // a new token again, which is what actually locks them out.
-  await db.delete(users).where(eq(users.id, user.id))
+  // Registration is invite-gated and only an admin can issue invites - if
+  // this is the sole remaining admin, deleting their own account would be
+  // a deterministic, unrecoverable lockout (no one left able to ever
+  // create a new admin again). The admin-mediated paths in admin.ts
+  // already guard against this same outcome; self-service deletion needs
+  // the identical guard. Checked and deleted inside one synchronous
+  // transaction so a concurrent request can't slip through between the
+  // count and the delete (matches PATCH /admin/users/:id/role and
+  // DELETE /admin/users/:id's own guard).
+  const orphaned = db.transaction((tx) => {
+    if (user.role === 'admin') {
+      const admins = tx.select().from(users).where(eq(users.role, 'admin')).all()
+      if (admins.length <= 1) return true
+    }
+    // Cascades refresh_tokens and auth_codes (see schema.ts's onDelete:
+    // 'cascade' on both, and foreign_keys=ON in db/index.ts) - no manual
+    // cleanup needed here. Other services' own local copies of this
+    // user's id are left as-is; without a valid session they can never be
+    // issued a new token again, which is what actually locks them out.
+    tx.delete(users).where(eq(users.id, user.id)).run()
+    return false
+  })
+  if (orphaned) {
+    return c.json({ error: 'Cannot delete the last remaining admin - promote another user first' }, 409)
+  }
   clearCookie(c)
 
   return c.json({ ok: true })

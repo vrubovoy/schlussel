@@ -51,6 +51,23 @@ fit best; add a new section if none fits.
 - Added an admin-only OpenAPI spec (`GET /auth/openapi.json`) generated
   from the existing route Zod schemas, purely additive/descriptive - it
   has no effect on runtime request validation.
+- Security audit fixes: `DELETE /auth/account` (self-service deletion)
+  gained the same last-admin guard the admin-mediated user-management
+  routes already had - without it, the platform's sole admin could delete
+  their own account and permanently lock everyone out (no admin left to
+  ever issue another invite). `POST /auth/login`'s no-PKCE branch no
+  longer unconditionally establishes a session cookie regardless of
+  origin - `codeChallenge` is optional, so any consumer app's own
+  `/auth/*` proxy could reach this exact branch and get a real,
+  persistent cookie planted on its own origin; now gated by
+  `isTrustedOrigin` like every other session-establishing path. The
+  last-admin guard itself (role-change and delete-another-user) is now a
+  single synchronous transaction rather than a separate read then write -
+  closes a narrow race where two concurrent requests against two
+  different admins could both read "more than one admin left" before
+  either write commits. Added a per-IP failed-attempt limiter to `/login`
+  (resets on success) - invite/PKCE codes are already unguessable by
+  brute force, so this only needed to cover password guessing.
 
 ## UI
 - New `/admin` page: user management (role, force-logout, delete),
