@@ -39,6 +39,10 @@ export function AdminPage() {
 
       <div style={{ flex: 1, background: 'var(--bg-base)', padding: '2rem 1rem' }}>
         <div style={{ maxWidth: 760, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          <a href="/account" style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', textDecoration: 'none' }}>
+            ← Аккаунт
+          </a>
+
           <div>
             <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
               Администрирование

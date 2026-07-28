@@ -78,6 +78,12 @@ fit best; add a new section if none fits.
   original blue (`#3b82f6`) as schlussel's own accent, now an explicit
   local override on top of the shared tokens instead of an accidental
   shared default.
+- `/admin` and `/docs` weren't linked from anywhere in the normal UI - the
+  only way to reach either was typing the URL directly. Added an
+  admin-only "Администрирование" shortcut card on `/account` linking to
+  `/admin` (which already links onward to `/docs`), plus small back-links
+  from `/admin` to `/account` and from `/docs` to `/admin`, so the three
+  pages form a discoverable loop.
 
 ## Infrastructure
 - CI (tests + lint) on every push/PR.
