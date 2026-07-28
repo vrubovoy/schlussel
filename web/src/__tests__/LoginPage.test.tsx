@@ -151,7 +151,7 @@ describe('LoginPage — valid return_to', () => {
     vi.unstubAllEnvs()
   })
 
-  it('shows an error message when login rejects', async () => {
+  it('shows an error message when login rejects, and marks BOTH fields invalid without saying which is wrong', async () => {
     vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
     const { LoginPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     const ApiError = (await import('../lib/api')).ApiError
@@ -159,11 +159,69 @@ describe('LoginPage — valid return_to', () => {
     const user = userEvent.setup()
     render(<LoginPage />)
 
-    await user.type(await screen.findByPlaceholderText(/example/i), 'bad@user.com')
-    await user.type(document.querySelector('input[type="password"]') as Element, 'wrong')
+    const emailInput = await screen.findByPlaceholderText(/example/i)
+    const passwordInput = document.querySelector('input[type="password"]') as HTMLInputElement
+    await user.type(emailInput, 'bad@user.com')
+    await user.type(passwordInput, 'wrong')
     await user.click(screen.getByRole('button', { name: 'Войти' }))
 
     await screen.findByText('Неверный email или пароль')
+    // Exactly one occurrence of the message - not duplicated under each
+    // field (this is the point of Field's `invalid` prop).
+    expect(screen.getAllByText('Неверный email или пароль')).toHaveLength(1)
+    expect(emailInput).toHaveAttribute('aria-invalid', 'true')
+    expect(passwordInput).toHaveAttribute('aria-invalid', 'true')
+    vi.unstubAllEnvs()
+  })
+
+  it('clears the invalid-credentials highlight as soon as either field is edited again', async () => {
+    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    const { LoginPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
+    const ApiError = (await import('../lib/api')).ApiError
+    mockLogin.mockRejectedValue(new ApiError(401, 'Invalid credentials'))
+    const user = userEvent.setup()
+    render(<LoginPage />)
+
+    const emailInput = await screen.findByPlaceholderText(/example/i)
+    const passwordInput = document.querySelector('input[type="password"]') as HTMLInputElement
+    await user.type(emailInput, 'bad@user.com')
+    await user.type(passwordInput, 'wrong')
+    await user.click(screen.getByRole('button', { name: 'Войти' }))
+    await screen.findByText('Неверный email или пароль')
+
+    await user.type(passwordInput, '2')
+    expect(screen.queryByText('Неверный email или пароль')).not.toBeInTheDocument()
+    expect(emailInput).toHaveAttribute('aria-invalid', 'false')
+    expect(passwordInput).toHaveAttribute('aria-invalid', 'false')
+    vi.unstubAllEnvs()
+  })
+
+  it('rejects a malformed email client-side without ever calling login', async () => {
+    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    const { LoginPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
+    const user = userEvent.setup()
+    render(<LoginPage />)
+
+    await user.type(await screen.findByPlaceholderText(/example/i), 'not-an-email')
+    await user.type(document.querySelector('input[type="password"]') as Element, 'password1')
+    await user.click(screen.getByRole('button', { name: 'Войти' }))
+
+    expect(await screen.findByText('Неверный формат email')).toBeInTheDocument()
+    expect(mockLogin).not.toHaveBeenCalled()
+    vi.unstubAllEnvs()
+  })
+
+  it('rejects an empty password client-side without ever calling login', async () => {
+    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    const { LoginPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
+    const user = userEvent.setup()
+    render(<LoginPage />)
+
+    await user.type(await screen.findByPlaceholderText(/example/i), 'alice@test.com')
+    await user.click(screen.getByRole('button', { name: 'Войти' }))
+
+    expect(await screen.findByText('Введите пароль')).toBeInTheDocument()
+    expect(mockLogin).not.toHaveBeenCalled()
     vi.unstubAllEnvs()
   })
 })

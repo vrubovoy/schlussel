@@ -7,6 +7,7 @@ import {
   listSessions, revokeSession, logoutEverywhere, ApiError, type AuthUser, type Session,
 } from '../../lib/api'
 import { readReturnTo, DEFAULT_APP_URL, type ReturnToResult } from '../../lib/returnTo'
+import { validateName, validatePassword, validatePasswordsMatch } from '../../lib/validation'
 import { PasswordField } from '../auth/PasswordField'
 import { Header } from '../../components/Header'
 import { Footer } from '../../components/Footer'
@@ -176,6 +177,7 @@ interface ProfileCardProps {
 
 function ProfileCard({ user, accessToken, onNameChange }: ProfileCardProps) {
   const [name, setName] = useState(user.name)
+  const [nameError, setNameError] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -191,6 +193,14 @@ function ProfileCard({ user, accessToken, onNameChange }: ProfileCardProps) {
     e.preventDefault()
     setError('')
     setSuccess(false)
+
+    const validationError = validateName(name)
+    if (validationError) {
+      setNameError(validationError)
+      return
+    }
+    setNameError('')
+
     setLoading(true)
     try {
       const updated = await updateName(accessToken, trimmed)
@@ -221,13 +231,14 @@ function ProfileCard({ user, accessToken, onNameChange }: ProfileCardProps) {
         <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>{user.email}</div>
       </div>
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+      <form onSubmit={handleSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
         <Field
           id="account-name"
           label="Имя"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => { setName(e.target.value); setNameError('') }}
           required
+          error={nameError}
         />
 
         {error && (
@@ -249,22 +260,37 @@ function ProfileCard({ user, accessToken, onNameChange }: ProfileCardProps) {
   )
 }
 
+interface PasswordFieldErrors {
+  currentPassword?: string
+  newPassword?: string
+  confirmPassword?: string
+}
+
 function PasswordCard({ accessToken }: { accessToken: string }) {
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState<PasswordFieldErrors>({})
+  const [formError, setFormError] = useState('')
   const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setError('')
     setSuccess(false)
-    if (newPassword !== confirmPassword) {
-      setError('Пароли не совпадают')
+    setFormError('')
+
+    const nextErrors: PasswordFieldErrors = {}
+    const newPasswordError = validatePassword(newPassword)
+    if (newPasswordError) nextErrors.newPassword = newPasswordError
+    const matchError = validatePasswordsMatch(newPassword, confirmPassword)
+    if (matchError) nextErrors.confirmPassword = matchError
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors)
       return
     }
+    setFieldErrors({})
+
     setLoading(true)
     try {
       await changePassword(accessToken, currentPassword, newPassword)
@@ -273,7 +299,11 @@ function PasswordCard({ accessToken }: { accessToken: string }) {
       setConfirmPassword('')
       setSuccess(true)
     } catch (err) {
-      setError(err instanceof ApiError && err.status === 401 ? 'Неверный текущий пароль' : 'Не удалось изменить пароль')
+      if (err instanceof ApiError && err.status === 401) {
+        setFieldErrors({ currentPassword: 'Неверный текущий пароль' })
+      } else {
+        setFormError('Не удалось изменить пароль')
+      }
     } finally {
       setLoading(false)
     }
@@ -286,36 +316,39 @@ function PasswordCard({ accessToken }: { accessToken: string }) {
         <h2 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>Пароль</h2>
       </div>
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+      <form onSubmit={handleSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
         <PasswordField
           id="account-current-password"
           label="Текущий пароль"
           value={currentPassword}
-          onChange={setCurrentPassword}
+          onChange={(v) => { setCurrentPassword(v); setFieldErrors((f) => ({ ...f, currentPassword: undefined })) }}
           autoComplete="current-password"
+          error={fieldErrors.currentPassword}
         />
         <PasswordField
           id="account-new-password"
           label="Новый пароль"
           value={newPassword}
-          onChange={setNewPassword}
+          onChange={(v) => { setNewPassword(v); setFieldErrors((f) => ({ ...f, newPassword: undefined })) }}
           placeholder="Минимум 8 символов"
           minLength={8}
           autoComplete="new-password"
+          error={fieldErrors.newPassword}
         />
         <PasswordField
           id="account-new-password-confirm"
           label="Повторите новый пароль"
           value={confirmPassword}
-          onChange={setConfirmPassword}
+          onChange={(v) => { setConfirmPassword(v); setFieldErrors((f) => ({ ...f, confirmPassword: undefined })) }}
           placeholder="Минимум 8 символов"
           minLength={8}
           autoComplete="new-password"
+          error={fieldErrors.confirmPassword}
         />
 
-        {error && (
+        {formError && (
           <div style={{ padding: '0.625rem 0.75rem', background: 'var(--danger-muted)', border: '1px solid var(--danger)', borderRadius: 8, fontSize: '0.8125rem', color: 'var(--danger)' }}>
-            {error}
+            {formError}
           </div>
         )}
         {success && (
@@ -454,18 +487,18 @@ function SessionsCard({ accessToken }: { accessToken: string }) {
 
 function DangerZoneCard({ accessToken }: { accessToken: string }) {
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const [passwordError, setPasswordError] = useState('')
   const [loading, setLoading] = useState(false)
 
   async function handleDelete(e: React.FormEvent) {
     e.preventDefault()
-    setError('')
+    setPasswordError('')
     setLoading(true)
     try {
       await deleteAccount(accessToken, password)
       window.location.href = DEFAULT_APP_URL
     } catch (err) {
-      setError(err instanceof ApiError && err.status === 401 ? 'Неверный пароль' : 'Не удалось удалить аккаунт')
+      setPasswordError(err instanceof ApiError && err.status === 401 ? 'Неверный пароль' : 'Не удалось удалить аккаунт')
       setLoading(false)
     }
   }
@@ -480,20 +513,15 @@ function DangerZoneCard({ accessToken }: { accessToken: string }) {
         Аккаунт и доступ ко всем сервисам платформы будут удалены безвозвратно. Введите пароль, чтобы подтвердить.
       </p>
 
-      <form onSubmit={handleDelete} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+      <form onSubmit={handleDelete} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
         <PasswordField
           id="account-delete-password"
           label="Пароль"
           value={password}
-          onChange={setPassword}
+          onChange={(v) => { setPassword(v); setPasswordError('') }}
           autoComplete="current-password"
+          error={passwordError}
         />
-
-        {error && (
-          <div style={{ padding: '0.625rem 0.75rem', background: 'var(--danger-muted)', border: '1px solid var(--danger)', borderRadius: 8, fontSize: '0.8125rem', color: 'var(--danger)' }}>
-            {error}
-          </div>
-        )}
 
         <Button
           type="submit"

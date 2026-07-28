@@ -112,6 +112,7 @@ function UsersSection({ accessToken, currentUserId }: { accessToken: string; cur
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null)
   const [deletePassword, setDeletePassword] = useState('')
   const [deleteError, setDeleteError] = useState('')
+  const [deletePasswordError, setDeletePasswordError] = useState('')
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(() => {
@@ -157,6 +158,7 @@ function UsersSection({ accessToken, currentUserId }: { accessToken: string; cur
     if (!deleteTarget || busy) return
     setBusy(true)
     setDeleteError('')
+    setDeletePasswordError('')
     try {
       await deleteUserAsAdmin(accessToken, deleteTarget.id, deletePassword)
       setDeleteTarget(null)
@@ -164,7 +166,7 @@ function UsersSection({ accessToken, currentUserId }: { accessToken: string; cur
       load()
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) setDeleteError('Нельзя удалить последнего администратора')
-      else if (err instanceof ApiError && err.status === 401) setDeleteError('Неверный пароль')
+      else if (err instanceof ApiError && err.status === 401) setDeletePasswordError('Неверный пароль')
       else setDeleteError('Не удалось удалить пользователя')
     } finally {
       setBusy(false)
@@ -254,10 +256,10 @@ function UsersSection({ accessToken, currentUserId }: { accessToken: string; cur
 
       <Modal
         open={!!deleteTarget}
-        onClose={() => { setDeleteTarget(null); setDeletePassword(''); setDeleteError('') }}
+        onClose={() => { setDeleteTarget(null); setDeletePassword(''); setDeleteError(''); setDeletePasswordError('') }}
         title="Удалить аккаунт пользователя?"
         actions={[
-          { label: 'Отмена', onClick: () => { setDeleteTarget(null); setDeletePassword(''); setDeleteError('') }, variant: 'ghost' },
+          { label: 'Отмена', onClick: () => { setDeleteTarget(null); setDeletePassword(''); setDeleteError(''); setDeletePasswordError('') }, variant: 'ghost' },
           { label: 'Удалить навсегда', onClick: confirmDelete, variant: 'danger' },
         ]}
       >
@@ -268,8 +270,9 @@ function UsersSection({ accessToken, currentUserId }: { accessToken: string; cur
           id="admin-delete-user-password"
           label="Ваш пароль"
           value={deletePassword}
-          onChange={setDeletePassword}
+          onChange={(v) => { setDeletePassword(v); setDeletePasswordError('') }}
           autoComplete="current-password"
+          error={deletePasswordError}
         />
         {deleteError && (
           <div style={{ marginTop: '0.75rem', padding: '0.625rem 0.75rem', background: 'var(--danger-muted)', border: '1px solid var(--danger)', borderRadius: 8, fontSize: '0.8125rem', color: 'var(--danger)' }}>
@@ -317,7 +320,11 @@ function InvitesSection({ accessToken }: { accessToken: string }) {
     setError('')
     try {
       const invite = await createInvite(accessToken)
-      setNewLink(`${window.location.origin}/register?invite=${invite.code}`)
+      // A fragment (#invite=...), not a query param - it's never sent in
+      // an HTTP request line, so it can't end up in Caddy's access logs or
+      // a Referer header the way ?invite=... would. RegisterPage strips
+      // it from the visible URL as soon as it reads it.
+      setNewLink(`${window.location.origin}/register#invite=${invite.code}`)
       load()
     } catch {
       setError('Не удалось создать приглашение')

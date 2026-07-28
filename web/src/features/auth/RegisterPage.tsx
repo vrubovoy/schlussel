@@ -3,17 +3,26 @@ import { Field, Button } from '@zudar107/schloss-ui'
 import { register, ApiError } from '../../lib/api'
 import { generateCodeChallenge, generateCodeVerifier } from '../../lib/pkce'
 import {
-  readReturnTo, readCodeChallenge, redirectWithCode, redirectToDefaultApp, withReturnTo, DEFAULT_APP_URL,
+  readReturnTo, readCodeChallenge, readInviteCode, redirectWithCode, redirectToDefaultApp, withReturnTo, DEFAULT_APP_URL,
 } from '../../lib/returnTo'
+import { validateName, validateEmail, validatePassword, validatePasswordsMatch } from '../../lib/validation'
 import { ErrorPage } from './ErrorPage'
 import { PasswordField } from './PasswordField'
 import { Header } from '../../components/Header'
 import { Footer } from '../../components/Footer'
 
+interface FieldErrors {
+  name?: string
+  email?: string
+  password?: string
+  confirmPassword?: string
+  inviteCode?: string
+}
+
 export function RegisterPage() {
   const returnTo = readReturnTo()
   const codeChallenge = readCodeChallenge()
-  const inviteFromUrl = new URLSearchParams(window.location.search).get('invite') ?? ''
+  const inviteFromUrl = readInviteCode()
   const hasInvite = inviteFromUrl.length > 0
   // Both present together, exactly as before - a partially-specified pair
   // is treated the same as neither being there.
@@ -24,7 +33,8 @@ export function RegisterPage() {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [inviteCode, setInviteCode] = useState(inviteFromUrl)
-  const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
+  const [formError, setFormError] = useState('')
   const [loading, setLoading] = useState(false)
   // Only needed for the bare-invite-link path below, where there's no
   // external caller supplying its own code_challenge - generated once and
@@ -41,6 +51,18 @@ export function RegisterPage() {
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // The invite code travels in the URL fragment (#invite=..., see
+  // returnTo.ts's readInviteCode) specifically so it never reaches the
+  // server in a request line - browsers never send the fragment - but it
+  // still briefly sits in the visible address bar/history after the link
+  // is opened. Strip it as soon as it's read into state; the query string
+  // (return_to/code_challenge, if any) is untouched.
+  useEffect(() => {
+    if (!hasInvite) return
+    history.replaceState(null, '', window.location.pathname + window.location.search)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -70,11 +92,24 @@ export function RegisterPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setError('')
-    if (password !== confirmPassword) {
-      setError('Пароли не совпадают')
+    setFormError('')
+
+    const nextErrors: FieldErrors = {}
+    const nameError = validateName(name)
+    if (nameError) nextErrors.name = nameError
+    const emailError = validateEmail(email)
+    if (emailError) nextErrors.email = emailError
+    const passwordError = validatePassword(password)
+    if (passwordError) nextErrors.password = passwordError
+    const matchError = validatePasswordsMatch(password, confirmPassword)
+    if (matchError) nextErrors.confirmPassword = matchError
+
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors)
       return
     }
+    setFieldErrors({})
+
     setLoading(true)
     try {
       const { code } = await register(email, password, name, challenge, inviteCode || undefined)
@@ -87,10 +122,16 @@ export function RegisterPage() {
       // The stray `code` param is simply ignored by whatever it lands on.
       redirectWithCode(returnToUrl, code)
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) setError('Этот email уже зарегистрирован')
-      else if (err instanceof ApiError && err.status === 400) {
-        setError(inviteCode ? 'Неверный или истёкший код приглашения' : 'Нужен код приглашения')
-      } else setError('Не удалось зарегистрироваться')
+      if (err instanceof ApiError && err.status === 409) {
+        setFieldErrors({ email: 'Этот email уже зарегистрирован' })
+      } else if (err instanceof ApiError && err.status === 400) {
+        // Deliberately as vague as the server's own message - not
+        // distinguishing "wrong code" from "expired"/"revoked"/"used"
+        // avoids handing back a codebook for guessing invite codes.
+        setFieldErrors({ inviteCode: inviteCode ? 'Неверный или истёкший код приглашения' : 'Нужен код приглашения' })
+      } else {
+        setFormError('Не удалось зарегистрироваться')
+      }
       setLoading(false)
     }
   }
@@ -121,58 +162,63 @@ export function RegisterPage() {
             </h1>
           </div>
 
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+          <form onSubmit={handleSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
             <Field
               id="register-name"
               label="Имя"
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => { setName(e.target.value); setFieldErrors((f) => ({ ...f, name: undefined })) }}
               placeholder="Ваше имя"
               required
               autoComplete="name"
+              error={fieldErrors.name}
             />
             <Field
               id="register-email"
               label="Email"
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => { setEmail(e.target.value); setFieldErrors((f) => ({ ...f, email: undefined })) }}
               placeholder="name@example.com"
               required
               autoComplete="email"
+              error={fieldErrors.email}
             />
             <PasswordField
               id="register-password"
               label="Пароль"
               value={password}
-              onChange={setPassword}
+              onChange={(v) => { setPassword(v); setFieldErrors((f) => ({ ...f, password: undefined })) }}
               placeholder="Минимум 8 символов"
               minLength={8}
               autoComplete="new-password"
+              error={fieldErrors.password}
             />
             <PasswordField
               id="register-password-confirm"
               label="Повторите пароль"
               value={confirmPassword}
-              onChange={setConfirmPassword}
+              onChange={(v) => { setConfirmPassword(v); setFieldErrors((f) => ({ ...f, confirmPassword: undefined })) }}
               placeholder="Минимум 8 символов"
               minLength={8}
               autoComplete="new-password"
+              error={fieldErrors.confirmPassword}
             />
             <Field
               id="register-invite"
               label="Код приглашения"
               type="text"
               value={inviteCode}
-              onChange={(e) => setInviteCode(e.target.value)}
+              onChange={(e) => { setInviteCode(e.target.value); setFieldErrors((f) => ({ ...f, inviteCode: undefined })) }}
               placeholder="Получен от администратора"
               autoComplete="off"
+              error={fieldErrors.inviteCode}
             />
 
-            {error && (
+            {formError && (
               <div style={{ padding: '0.625rem 0.75rem', background: 'var(--danger-muted)', border: '1px solid var(--danger)', borderRadius: 8, fontSize: '0.875rem', color: 'var(--danger)' }}>
-                {error}
+                {formError}
               </div>
             )}
 

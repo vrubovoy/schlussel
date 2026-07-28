@@ -10,9 +10,11 @@ interface PasswordFieldProps {
   placeholder?: string
   autoComplete?: string
   minLength?: number
+  error?: string
+  invalid?: boolean
 }
 
-export function PasswordField({ id, label, value, onChange, placeholder, autoComplete, minLength }: PasswordFieldProps) {
+export function PasswordField({ id, label, value, onChange, placeholder, autoComplete, minLength, error, invalid }: PasswordFieldProps) {
   const [visible, setVisible] = useState(false)
 
   return (
@@ -26,6 +28,8 @@ export function PasswordField({ id, label, value, onChange, placeholder, autoCom
       required
       minLength={minLength}
       autoComplete={autoComplete}
+      error={error}
+      invalid={invalid}
       suffix={
         <button
           type="button"

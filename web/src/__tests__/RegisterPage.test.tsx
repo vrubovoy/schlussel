@@ -14,13 +14,13 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
-async function setLocation(search: string) {
+async function setLocation(search: string, hash: string = '') {
   vi.resetModules()
   const original = window.location
   // @ts-expect-error -- jsdom allows reassigning location for test purposes
   delete window.location
   // @ts-expect-error -- minimal stub covering what the module under test reads
-  window.location = { ...original, search, href: '', pathname: '/register' }
+  window.location = { ...original, search, hash, href: '', pathname: '/register' }
   const mod = await import('../features/auth/RegisterPage')
   return { RegisterPage: mod.RegisterPage }
 }
@@ -222,6 +222,100 @@ describe('RegisterPage — password confirmation', () => {
   })
 })
 
+describe('RegisterPage — field-level validation', () => {
+  it('rejects a name containing digits without ever calling register', async () => {
+    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
+    const user = userEvent.setup()
+    render(<RegisterPage />)
+
+    await user.type(screen.getByPlaceholderText('Ваше имя'), 'Alice2')
+    await user.type(screen.getByPlaceholderText(/example/i), 'alice@test.com')
+    await user.type(document.querySelectorAll('input[type="password"]')[0], 'password1')
+    await user.type(document.querySelectorAll('input[type="password"]')[1], 'password1')
+    await user.click(screen.getByRole('button', { name: 'Зарегистрироваться' }))
+
+    expect(await screen.findByText('Имя не должно содержать цифры')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Ваше имя')).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByPlaceholderText(/example/i)).toHaveAttribute('aria-invalid', 'false')
+    expect(mockRegister).not.toHaveBeenCalled()
+    vi.unstubAllEnvs()
+  })
+
+  it('rejects a malformed email without ever calling register', async () => {
+    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
+    const user = userEvent.setup()
+    render(<RegisterPage />)
+
+    await user.type(screen.getByPlaceholderText('Ваше имя'), 'Alice')
+    await user.type(screen.getByPlaceholderText(/example/i), 'not-an-email')
+    await user.type(document.querySelectorAll('input[type="password"]')[0], 'password1')
+    await user.type(document.querySelectorAll('input[type="password"]')[1], 'password1')
+    await user.click(screen.getByRole('button', { name: 'Зарегистрироваться' }))
+
+    expect(await screen.findByText('Неверный формат email')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/example/i)).toHaveAttribute('aria-invalid', 'true')
+    expect(mockRegister).not.toHaveBeenCalled()
+    vi.unstubAllEnvs()
+  })
+
+  it('rejects a password shorter than 8 characters without ever calling register', async () => {
+    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
+    const user = userEvent.setup()
+    render(<RegisterPage />)
+
+    await user.type(screen.getByPlaceholderText('Ваше имя'), 'Alice')
+    await user.type(screen.getByPlaceholderText(/example/i), 'alice@test.com')
+    await user.type(document.querySelectorAll('input[type="password"]')[0], 'short')
+    await user.type(document.querySelectorAll('input[type="password"]')[1], 'short')
+    await user.click(screen.getByRole('button', { name: 'Зарегистрироваться' }))
+
+    expect(await screen.findByText('Минимум 8 символов')).toBeInTheDocument()
+    expect(mockRegister).not.toHaveBeenCalled()
+    vi.unstubAllEnvs()
+  })
+
+  it('clears a field error as soon as that field is edited again', async () => {
+    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
+    const user = userEvent.setup()
+    render(<RegisterPage />)
+
+    await user.type(screen.getByPlaceholderText('Ваше имя'), 'Alice2')
+    await user.type(screen.getByPlaceholderText(/example/i), 'alice@test.com')
+    await user.type(document.querySelectorAll('input[type="password"]')[0], 'password1')
+    await user.type(document.querySelectorAll('input[type="password"]')[1], 'password1')
+    await user.click(screen.getByRole('button', { name: 'Зарегистрироваться' }))
+    await screen.findByText('Имя не должно содержать цифры')
+
+    await user.type(screen.getByPlaceholderText('Ваше имя'), '3')
+    expect(screen.queryByText('Имя не должно содержать цифры')).not.toBeInTheDocument()
+    vi.unstubAllEnvs()
+  })
+
+  it('marks the email field invalid (not the password fields) when the email is already registered', async () => {
+    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
+    const ApiError = (await import('../lib/api')).ApiError
+    mockRegister.mockRejectedValue(new ApiError(409, 'Email already registered'))
+    const user = userEvent.setup()
+    render(<RegisterPage />)
+
+    await user.type(screen.getByPlaceholderText('Ваше имя'), 'Alice')
+    await user.type(screen.getByPlaceholderText(/example/i), 'dup@test.com')
+    await user.type(document.querySelectorAll('input[type="password"]')[0], 'password1')
+    await user.type(document.querySelectorAll('input[type="password"]')[1], 'password1')
+    await user.click(screen.getByRole('button', { name: 'Зарегистрироваться' }))
+
+    await screen.findByText('Этот email уже зарегистрирован')
+    expect(screen.getByPlaceholderText(/example/i)).toHaveAttribute('aria-invalid', 'true')
+    expect(document.querySelectorAll('input[type="password"]')[0]).toHaveAttribute('aria-invalid', 'false')
+    vi.unstubAllEnvs()
+  })
+})
+
 describe('RegisterPage — password visibility toggle', () => {
   it('shows two toggle buttons, both initially labeled "Показать пароль"', async () => {
     vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
@@ -313,14 +407,16 @@ describe('RegisterPage — login link', () => {
 describe('RegisterPage — invite-gated registration', () => {
   // A bare admin-shared invite link: no return_to, no code_challenge at all.
   // Unlike every other "no return_to" case above (which bounces away
-  // immediately), the presence of ?invite= makes this a legitimate entry
+  // immediately), the presence of #invite= makes this a legitimate entry
   // point, so the form should render instead. The decision appears to be
   // made asynchronously (the very first render is still blank), so queries
-  // here use the async find* variants rather than get*.
-  const INVITE_QS = '?invite=SOMECODE123'
+  // here use the async find* variants rather than get*. The code travels
+  // in the URL fragment, not a query param - see returnTo.ts's
+  // readInviteCode for why.
+  const INVITE_HASH = '#invite=SOMECODE123'
 
-  it('renders the registration form instead of redirecting when only ?invite= is present', async () => {
-    const { RegisterPage } = await setLocation(INVITE_QS)
+  it('renders the registration form instead of redirecting when only #invite= is present', async () => {
+    const { RegisterPage } = await setLocation('', INVITE_HASH)
     render(<RegisterPage />)
 
     expect(await screen.findByPlaceholderText('Ваше имя')).toBeInTheDocument()
@@ -331,7 +427,7 @@ describe('RegisterPage — invite-gated registration', () => {
   })
 
   it('pre-fills an invite-code field with the code from the URL', async () => {
-    const { RegisterPage } = await setLocation(INVITE_QS)
+    const { RegisterPage } = await setLocation('', INVITE_HASH)
     render(<RegisterPage />)
 
     await screen.findByPlaceholderText('Ваше имя')
@@ -339,7 +435,7 @@ describe('RegisterPage — invite-gated registration', () => {
   })
 
   it('calls register with the invite code included when submitting from a bare invite link', async () => {
-    const { RegisterPage } = await setLocation(INVITE_QS)
+    const { RegisterPage } = await setLocation('', INVITE_HASH)
     mockRegister.mockResolvedValue({ code: 'reg-code' })
     const user = userEvent.setup()
     render(<RegisterPage />)
@@ -356,7 +452,7 @@ describe('RegisterPage — invite-gated registration', () => {
   })
 
   it('navigates away on successful submission from a bare invite link', async () => {
-    const { RegisterPage } = await setLocation(INVITE_QS)
+    const { RegisterPage } = await setLocation('', INVITE_HASH)
     mockRegister.mockResolvedValue({ code: 'reg-code' })
     const user = userEvent.setup()
     render(<RegisterPage />)
@@ -375,7 +471,8 @@ describe('RegisterPage — invite-gated registration', () => {
   it('also includes the invite code in register() call args for the existing return_to + code_challenge path', async () => {
     vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(
-      `?return_to=https://kuvert.test/callback${PKCE_QS}&invite=SOMECODE123`,
+      `?return_to=https://kuvert.test/callback${PKCE_QS}`,
+      INVITE_HASH,
     )
     mockRegister.mockResolvedValue({ code: 'reg-code' })
     const user = userEvent.setup()
@@ -394,7 +491,7 @@ describe('RegisterPage — invite-gated registration', () => {
   })
 
   it('shows a distinct error when register rejects with a 400 (invalid/expired invite) on the bare invite-link path', async () => {
-    const { RegisterPage } = await setLocation(INVITE_QS)
+    const { RegisterPage } = await setLocation('', INVITE_HASH)
     const ApiError = (await import('../lib/api')).ApiError
     mockRegister.mockRejectedValue(new ApiError(400, 'Invalid or expired invite code'))
     const user = userEvent.setup()

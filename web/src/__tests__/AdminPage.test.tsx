@@ -366,6 +366,7 @@ describe('AdminPage — delete user', () => {
       const bodyText = document.body.textContent ?? ''
       expect(bodyText).toMatch(/ошибк|неверн|401|не удал/i)
     })
+    expect(input).toHaveAttribute('aria-invalid', 'true')
   })
 })
 

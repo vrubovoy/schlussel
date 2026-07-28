@@ -337,21 +337,31 @@ describe('AccountPage — change password', () => {
     expect(confirm).toHaveValue('')
   })
 
-  it('shows an "invalid current password" error when changePassword rejects with 401', async () => {
+  it('shows an "invalid current password" error tied specifically to the current-password field when changePassword rejects with 401', async () => {
     const { user } = await renderLoggedIn()
     const ApiError = (await import('../lib/api')).ApiError
     mockChangePassword.mockRejectedValue(new ApiError(401, 'Invalid current password'))
 
-    await user.type(screen.getByLabelText('Текущий пароль'), 'oldpass123')
+    const current = screen.getByLabelText('Текущий пароль')
+    await user.type(current, 'oldpass123')
     await user.type(screen.getByLabelText('Новый пароль'), 'newpass456')
     await user.type(screen.getByLabelText('Повторите новый пароль'), 'newpass456')
     await user.click(screen.getByRole('button', { name: 'Изменить пароль' }))
 
-    await waitFor(() => {
-      const text = document.body.textContent ?? ''
-      expect(text).toMatch(/неверный/i)
-      expect(text).toMatch(/пароль/i)
-    })
+    await screen.findByText('Неверный текущий пароль')
+    expect(current).toHaveAttribute('aria-invalid', 'true')
+  })
+
+  it('rejects a new password shorter than 8 characters without ever calling changePassword', async () => {
+    const { user } = await renderLoggedIn()
+
+    await user.type(screen.getByLabelText('Текущий пароль'), 'oldpass123')
+    await user.type(screen.getByLabelText('Новый пароль'), 'short')
+    await user.type(screen.getByLabelText('Повторите новый пароль'), 'short')
+    await user.click(screen.getByRole('button', { name: 'Изменить пароль' }))
+
+    expect(await screen.findByText('Минимум 8 символов')).toBeInTheDocument()
+    expect(mockChangePassword).not.toHaveBeenCalled()
   })
 
   it('shows a visible error and does not crash when changePassword rejects with an unrelated error', async () => {
@@ -394,19 +404,17 @@ describe('AccountPage — delete account', () => {
     await waitFor(() => expect(window.location.href).not.toBe(''))
   })
 
-  it('shows an "invalid password" error and does not navigate when deleteAccount rejects with 401', async () => {
+  it('shows an "invalid password" error tied to the password field and does not navigate when deleteAccount rejects with 401', async () => {
     const { user } = await renderLoggedIn()
     const ApiError = (await import('../lib/api')).ApiError
     mockDeleteAccount.mockRejectedValue(new ApiError(401, 'Invalid password'))
 
-    await user.type(screen.getByLabelText('Пароль'), 'mypassword')
+    const passwordInput = screen.getByLabelText('Пароль')
+    await user.type(passwordInput, 'mypassword')
     await user.click(screen.getByRole('button', { name: 'Удалить аккаунт навсегда' }))
 
-    await waitFor(() => {
-      const text = document.body.textContent ?? ''
-      expect(text).toMatch(/неверный/i)
-      expect(text).toMatch(/пароль/i)
-    })
+    await screen.findByText('Неверный пароль')
+    expect(passwordInput).toHaveAttribute('aria-invalid', 'true')
     expect(window.location.href).toBe('')
   })
 })
@@ -488,6 +496,18 @@ describe('AccountPage — editable name form', () => {
 
     await waitFor(() => expect(mockUpdateName).toHaveBeenCalled())
     expect(input).toHaveValue('Jane Smith')
+  })
+
+  it('rejects a name containing digits without ever calling updateName', async () => {
+    const { user } = await renderLoggedIn()
+
+    const input = screen.getByLabelText('Имя')
+    await user.clear(input)
+    await user.type(input, 'Jane2')
+    await user.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+    expect(await screen.findByText('Имя не должно содержать цифры')).toBeInTheDocument()
+    expect(mockUpdateName).not.toHaveBeenCalled()
   })
 })
 
