@@ -66,6 +66,12 @@ export function DocsPage() {
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <Header user={{ name: user.name }} onLogout={handleLogout} />
 
+      <div style={{ padding: '0.625rem 1rem', borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
+        <a href="/admin" style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', textDecoration: 'none' }}>
+          ← Админ-панель
+        </a>
+      </div>
+
       <div style={{ flex: 1, background: '#fff', padding: loadError ? '2rem 1rem' : 0 }}>
         {loadError && (
           <div style={{ maxWidth: 480, margin: '0 auto', padding: '0.75rem 1rem', background: 'var(--danger-muted)', border: '1px solid var(--danger)', borderRadius: 8, fontSize: '0.875rem', color: 'var(--danger)' }}>

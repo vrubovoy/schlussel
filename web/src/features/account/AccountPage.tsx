@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { KeyRound, Trash2, User as UserIcon, Monitor } from 'lucide-react'
+import { KeyRound, Trash2, User as UserIcon, Monitor, ShieldCheck } from 'lucide-react'
 import { Button, Field, Badge } from '@zudar107/schloss-ui'
 import { generateCodeVerifier, generateCodeChallenge } from '../../lib/pkce'
 import {
@@ -124,6 +124,8 @@ export function AccountPage() {
             </p>
           </div>
 
+          {user.role === 'admin' && <AdminShortcutCard />}
+
           <ProfileCard
             user={user}
             accessToken={accessToken}
@@ -136,6 +138,32 @@ export function AccountPage() {
       </div>
 
       <Footer />
+    </div>
+  )
+}
+
+// The one shortcut out of the account settings and into the admin-only
+// surfaces (/admin, /docs) - neither is linked from anywhere else in the
+// normal UI, so without this an admin has no way to discover them short
+// of typing the URL. AdminPage links onward to /docs itself, so this
+// only needs to point at /admin.
+function AdminShortcutCard() {
+  return (
+    <div className="card" style={{ padding: '1.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+        <ShieldCheck size={17} color="var(--text-secondary)" />
+        <h2 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>Администрирование</h2>
+      </div>
+      <p style={{ margin: '0 0 1rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+        Пользователи, инвайты и документация API — доступно только администраторам.
+      </p>
+      <Button
+        variant="secondary"
+        onClick={() => { window.location.href = '/admin' }}
+        style={{ padding: '0.5rem 0.875rem', fontSize: '0.8125rem' }}
+      >
+        Открыть админ-панель
+      </Button>
     </div>
   )
 }
