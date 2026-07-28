@@ -6,6 +6,7 @@ import { LogoutPage } from './features/auth/LogoutPage'
 import { AccountPage } from './features/account/AccountPage'
 import { AdminPage } from './features/admin/AdminPage'
 import { DocsPage } from './features/docs/DocsPage'
+import { HelpPage } from './features/help/HelpPage'
 import { applyTheme, getStoredTheme } from '@zudar107/schloss-ui'
 import './index.css'
 
@@ -17,6 +18,7 @@ function Root() {
   if (window.location.pathname === '/account') return <AccountPage />
   if (window.location.pathname === '/admin') return <AdminPage />
   if (window.location.pathname === '/docs') return <DocsPage />
+  if (window.location.pathname === '/help') return <HelpPage />
   return <LoginPage />
 }
 
