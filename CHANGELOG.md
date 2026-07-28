@@ -165,3 +165,11 @@ fit best; add a new section if none fits.
 - Refreshed README after the invites/admin panel/OpenAPI batch (the
   settings-icon reference was stale - it's the avatar now) and added an
   "Updated docs" line to the PR checklist template.
+- Added a `/help` page: a plain-language usage guide for regular end
+  users, covering registration (incl. invite links), signing in,
+  password change, active sessions, account deletion, and theme -
+  deliberately excludes admin-only functionality. Reachable without
+  being logged in (unlike `/account`, `/admin`, `/docs`), since someone
+  stuck at login/registration is exactly who needs it. Text skeleton
+  only for now, with screenshot slots at `web/public/guide/schlussel-*.png`
+  for the user to fill in later.
