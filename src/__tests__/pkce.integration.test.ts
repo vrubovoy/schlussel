@@ -419,7 +419,7 @@ describe('POST /auth/refresh — codeChallenge extension', () => {
     const loginRes = await post('/auth/login', {
       email: 'alice@example.com',
       password: 'password123',
-    })
+    }, { 'X-Schlussel-Frontend': '1' })
     refreshCookie = getCookieValue(loginRes, 'schloss_refresh') ?? ''
     expect(refreshCookie).not.toBe('')
     const loginBody = await loginRes.json() as Record<string, unknown>
@@ -487,7 +487,7 @@ describe('POST /auth/refresh — codeChallenge extension', () => {
     const bobLogin = await post('/auth/login', {
       email: 'bob@example.com',
       password: 'bobpassword',
-    })
+    }, { 'X-Schlussel-Frontend': '1' })
     const bobCookie = getCookieValue(bobLogin, 'schloss_refresh') ?? ''
 
     const verifier = generateVerifier()

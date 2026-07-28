@@ -37,17 +37,6 @@ export async function authenticateAdmin(c: Context) {
   return { user }
 }
 
-// True if changing `targetUserId` to a non-admin role (or deleting it,
-// when becomingNonAdmin reflects "this account stops being an admin")
-// would leave the platform with zero admins.
-async function wouldOrphanAdmins(targetUserId: string, becomingNonAdmin: boolean): Promise<boolean> {
-  if (!becomingNonAdmin) return false
-  const target = await db.select().from(users).where(eq(users.id, targetUserId)).get()
-  if (!target || target.role !== 'admin') return false
-  const admins = await db.select().from(users).where(eq(users.role, 'admin')).all()
-  return admins.length <= 1
-}
-
 export const adminRouter = new Hono()
 
 // ── Invites ──────────────────────────────────────────────────────────────
@@ -159,14 +148,26 @@ adminRouter.patch('/admin/users/:id/role', zValidator('json', roleSchema), async
   const id = c.req.param('id')
   const { role } = c.req.valid('json')
 
-  const target = await db.select().from(users).where(eq(users.id, id)).get()
-  if (!target) return c.json({ error: 'User not found' }, 404)
+  // Read-then-write inside one synchronous transaction - better-sqlite3
+  // transactions can't yield to the event loop mid-callback, so this is
+  // genuinely atomic against a second concurrent request doing the same
+  // check against a different admin (unlike two separate awaited calls,
+  // which could both read "2 admins left" before either write commits).
+  const result = db.transaction((tx) => {
+    const target = tx.select().from(users).where(eq(users.id, id)).get()
+    if (!target) return { error: 'not_found' as const }
+    if (role === 'user' && target.role === 'admin') {
+      const admins = tx.select().from(users).where(eq(users.role, 'admin')).all()
+      if (admins.length <= 1) return { error: 'orphan' as const }
+    }
+    tx.update(users).set({ role }).where(eq(users.id, id)).run()
+    return { target }
+  })
 
-  if (await wouldOrphanAdmins(id, role === 'user')) {
-    return c.json({ error: 'Cannot demote the last remaining admin' }, 409)
-  }
+  if (result.error === 'not_found') return c.json({ error: 'User not found' }, 404)
+  if (result.error === 'orphan') return c.json({ error: 'Cannot demote the last remaining admin' }, 409)
 
-  await db.update(users).set({ role }).where(eq(users.id, id))
+  const { target } = result
   return c.json({ id: target.id, email: target.email, name: target.name, role })
 })
 
@@ -202,14 +203,23 @@ adminRouter.delete('/admin/users/:id', zValidator('json', adminDeleteSchema), as
   }
 
   const id = c.req.param('id')
-  const target = await db.select().from(users).where(eq(users.id, id)).get()
-  if (!target) return c.json({ error: 'User not found' }, 404)
 
-  if (await wouldOrphanAdmins(id, target.role === 'admin')) {
-    return c.json({ error: 'Cannot delete the last remaining admin' }, 409)
-  }
+  // See PATCH .../role above for why this whole check-then-write needs to
+  // be one synchronous transaction, not two separately-awaited calls.
+  const result = db.transaction((tx) => {
+    const target = tx.select().from(users).where(eq(users.id, id)).get()
+    if (!target) return { error: 'not_found' as const }
+    if (target.role === 'admin') {
+      const admins = tx.select().from(users).where(eq(users.role, 'admin')).all()
+      if (admins.length <= 1) return { error: 'orphan' as const }
+    }
+    tx.delete(users).where(eq(users.id, id)).run()
+    return { error: null }
+  })
 
-  await db.delete(users).where(eq(users.id, id))
+  if (result.error === 'not_found') return c.json({ error: 'User not found' }, 404)
+  if (result.error === 'orphan') return c.json({ error: 'Cannot delete the last remaining admin' }, 409)
+
   return c.json({ ok: true })
 })
 

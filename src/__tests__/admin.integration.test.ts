@@ -191,8 +191,11 @@ async function seedUser(
   return { id, email, name, role }
 }
 
+// Sends the same trust header schlussel-web's own Caddyfile adds on its
+// /auth/* passthrough - without it, /login now correctly withholds the
+// session cookie (see the isTrustedOrigin gate this helper is simulating).
 async function login(email: string, password = DEFAULT_PASSWORD) {
-  const res = await post('/auth/login', { email, password })
+  const res = await post('/auth/login', { email, password }, { 'X-Schlussel-Frontend': '1' })
   expect(res.status).toBe(200)
   const body = (await res.json()) as { accessToken: string; user: { id: string; role: string } }
   const refreshCookie = getCookieValue(res, 'schloss_refresh')
