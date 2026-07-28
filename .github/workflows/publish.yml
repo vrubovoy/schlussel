@@ -20,7 +20,7 @@ jobs:
     steps:
       # schloss-ui is a git submodule - needs to be checked out so it's
       # present in the build context these Dockerfiles COPY from.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
 

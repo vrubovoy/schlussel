@@ -44,7 +44,7 @@ jobs:
       # schloss-ui is a git submodule, linked via pnpm's workspace:*
       # protocol - needs to be checked out and built before web can
       # import from it.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
 
