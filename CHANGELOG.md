@@ -101,6 +101,25 @@ fit best; add a new section if none fits.
   `/admin` (which already links onward to `/docs`), plus small back-links
   from `/admin` to `/account` and from `/docs` to `/admin`, so the three
   pages form a discoverable loop.
+- Every form (Register, Login, account name/password/delete, admin
+  delete-user) now validates its own inputs client-side and highlights
+  the specific invalid field in red, instead of one generic banner at the
+  bottom - new `lib/validation.ts` centralizes the rules (name:
+  letters/space/hyphen/apostrophe only, no digits; email format; password
+  length; password match). `/login`'s wrong-email-vs-wrong-password stays
+  deliberately merged into one message highlighting both fields without
+  saying which is at fault - splitting it would reintroduce the
+  user-enumeration gap the security audit above just closed. Bumped
+  `schloss-ui` for `Field`'s new `error`-driven red border and `invalid`
+  prop (a shared message highlighting a field without duplicating text
+  under it), both needed here.
+- Invite links now carry the code in the URL fragment (`#invite=...`)
+  instead of a query param (`?invite=...`) - a query param is sent in the
+  HTTP request line and can end up in Caddy's access logs or a
+  same-origin Referer header; a fragment never leaves the browser.
+  `RegisterPage` strips it from the visible address bar via
+  `history.replaceState` right after reading it. One-click link UX is
+  unchanged.
 
 ## Infrastructure
 - CI (tests + lint) on every push/PR.

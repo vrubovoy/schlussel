@@ -2,17 +2,36 @@ import { useState, useEffect } from 'react'
 import { Field, Button } from '@zudar107/schloss-ui'
 import { login, ApiError } from '../../lib/api'
 import { readReturnTo, readCodeChallenge, redirectWithCode, redirectToDefaultApp, withReturnTo } from '../../lib/returnTo'
+import { validateEmail } from '../../lib/validation'
 import { ErrorPage } from './ErrorPage'
 import { PasswordField } from './PasswordField'
 import { Header } from '../../components/Header'
 import { Footer } from '../../components/Footer'
+
+// Deliberately the same message under both fields, never split into
+// "email not found" vs "wrong password" - that would let a caller
+// enumerate which emails are registered on the platform. Both fields get
+// highlighted (neither is provably the culprit) rather than singling one
+// out. Mirrors the server's own generic 401 (see schlussel's isTrustedOrigin
+// discussion / the security audit that added a matching test there).
+const INVALID_CREDENTIALS_MESSAGE = 'Неверный email или пароль'
+
+interface FieldErrors {
+  email?: string
+  password?: string
+}
 
 export function LoginPage() {
   const returnTo = readReturnTo()
   const codeChallenge = readCodeChallenge()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
+  // Separate from fieldErrors - a 401 highlights both fields (see
+  // INVALID_CREDENTIALS_MESSAGE) but the message itself is shown once, as
+  // formError, not duplicated under each field.
+  const [credentialsInvalid, setCredentialsInvalid] = useState(false)
+  const [formError, setFormError] = useState('')
   const [loading, setLoading] = useState(false)
   const [checkingSession, setCheckingSession] = useState(true)
 
@@ -78,13 +97,31 @@ export function LoginPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setError('')
+    setFormError('')
+    setCredentialsInvalid(false)
+
+    const nextErrors: FieldErrors = {}
+    const emailError = validateEmail(email)
+    if (emailError) nextErrors.email = emailError
+    if (!password) nextErrors.password = 'Введите пароль'
+
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors)
+      return
+    }
+    setFieldErrors({})
+
     setLoading(true)
     try {
       const { code } = await login(email, password, challenge)
       redirectWithCode(returnToUrl, code)
     } catch (err) {
-      setError(err instanceof ApiError && err.status === 401 ? 'Неверный email или пароль' : 'Не удалось войти')
+      if (err instanceof ApiError && err.status === 401) {
+        setCredentialsInvalid(true)
+        setFormError(INVALID_CREDENTIALS_MESSAGE)
+      } else {
+        setFormError('Не удалось войти')
+      }
       setLoading(false)
     }
   }
@@ -115,29 +152,43 @@ export function LoginPage() {
             </h1>
           </div>
 
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+          <form onSubmit={handleSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
             <Field
               id="login-email"
               label="Email"
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value)
+                setFieldErrors((f) => ({ ...f, email: undefined }))
+                setCredentialsInvalid(false)
+                setFormError('')
+              }}
               placeholder="name@example.com"
               required
               autoComplete="email"
+              error={fieldErrors.email}
+              invalid={credentialsInvalid}
             />
             <PasswordField
               id="login-password"
               label="Пароль"
               value={password}
-              onChange={setPassword}
+              onChange={(v) => {
+                setPassword(v)
+                setFieldErrors((f) => ({ ...f, password: undefined }))
+                setCredentialsInvalid(false)
+                setFormError('')
+              }}
               placeholder="••••••••"
               autoComplete="current-password"
+              error={fieldErrors.password}
+              invalid={credentialsInvalid}
             />
 
-            {error && (
+            {formError && (
               <div style={{ padding: '0.625rem 0.75rem', background: 'var(--danger-muted)', border: '1px solid var(--danger)', borderRadius: 8, fontSize: '0.875rem', color: 'var(--danger)' }}>
-                {error}
+                {formError}
               </div>
             )}
 

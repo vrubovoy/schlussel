@@ -44,6 +44,16 @@ export function readCodeChallenge(search: string = window.location.search): Code
   return { present: true, codeChallenge }
 }
 
+// Read from the URL fragment, not a query param - a fragment is never
+// sent in the HTTP request line, so it never touches Caddy's access logs
+// or a Referer header the way `?invite=...` would. RegisterPage strips it
+// from the visible URL via history.replaceState right after reading it.
+export function readInviteCode(hash: string = window.location.hash): string {
+  if (!hash.startsWith('#')) return ''
+  const params = new URLSearchParams(hash.slice(1))
+  return params.get('invite') ?? ''
+}
+
 export function redirectWithCode(returnTo: string, code: string) {
   const separator = returnTo.includes('?') ? '&' : '?'
   window.location.href = `${returnTo}${separator}code=${encodeURIComponent(code)}`

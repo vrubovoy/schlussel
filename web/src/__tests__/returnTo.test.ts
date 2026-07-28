@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { readReturnTo, readCodeChallenge, redirectWithCode, withReturnTo } from '../lib/returnTo'
+import { readReturnTo, readCodeChallenge, redirectWithCode, withReturnTo, readInviteCode } from '../lib/returnTo'
 
 // A plausible 43-character base64url code_challenge fixture (PKCE S256
 // challenges are the base64url-encoded SHA256 digest of a verifier, which is
@@ -160,5 +160,23 @@ describe('withReturnTo', () => {
   it('leaves the path untouched when there is no return_to', () => {
     const path = withReturnTo('/register', '')
     expect(path).toBe('/register')
+  })
+})
+
+describe('readInviteCode', () => {
+  it('extracts the code from a URL fragment', () => {
+    expect(readInviteCode('#invite=abc123')).toBe('abc123')
+  })
+
+  it('returns an empty string when there is no fragment', () => {
+    expect(readInviteCode('')).toBe('')
+  })
+
+  it('returns an empty string when the fragment has no invite param', () => {
+    expect(readInviteCode('#foo=bar')).toBe('')
+  })
+
+  it('does not read a legacy ?invite= query param', () => {
+    expect(readInviteCode('')).toBe('')
   })
 })
