@@ -153,6 +153,14 @@ fit best; add a new section if none fits.
   row's other tiles) and `Badge`'s baseline-mismatch fix against plain
   text - both hit on `/admin`'s overview and invites journal while
   testing.
+- Pinned `better-sqlite3` back to `^12.11.1` after a routine Dependabot
+  bump to `13.0.1` broke both Docker images (root API and `web`, which
+  installs against the same shared lockfile) - v13 dropped prebuilt
+  binaries entirely, so install always compiles from source via
+  `node-gyp` now, on every platform, instead of just downloading a
+  matching binary like every 12.x release does. Added a Dependabot
+  `ignore` rule for `better-sqlite3` major-version bumps so this can't
+  silently reintroduce itself.
 
 ## Docs
 - README, AGPL-3.0 LICENSE, CONTRIBUTING.md.
