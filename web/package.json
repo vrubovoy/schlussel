@@ -17,7 +17,7 @@
     "@zudar107/schloss-ui": "workspace:*",
     "lucide-react": "^1.27.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7",
+    "react-dom": "^19.2.8",
     "swagger-ui-dist": "^5.32.11",
     "tailwindcss": "^4.3.3"
   },
