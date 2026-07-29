@@ -4,6 +4,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # v13 dropped prebuilt binaries entirely (always compiles from
+      # source via node-gyp now, on every platform) - see #132.
+      - dependency-name: "better-sqlite3"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: /web
