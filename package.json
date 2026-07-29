@@ -24,7 +24,7 @@
     "better-sqlite3": "^12.11.1",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.32",
-    "jose": "^6.2.3",
+    "jose": "^6.2.4",
     "zod": "^4.4.3"
   },
   "devDependencies": {
