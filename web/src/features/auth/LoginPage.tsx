@@ -172,6 +172,14 @@ export function LoginPage() {
               autoComplete="email"
               error={fieldErrors.email}
               invalid={credentialsInvalid}
+              // Same readonly-until-focus guard as RegisterPage's email
+              // field (see its own comment for the full explanation): this
+              // field precedes a password field, so Chrome/Edge treat it as
+              // a "username" and offer their saved-password picker on any
+              // focus, not just after an error. Suppressed the same way.
+              readOnly
+              onFocus={(e) => { e.currentTarget.readOnly = false }}
+              onBlur={(e) => { e.currentTarget.readOnly = true }}
             />
             <PasswordField
               id="login-password"
