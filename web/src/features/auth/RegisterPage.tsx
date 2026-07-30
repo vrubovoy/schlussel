@@ -196,6 +196,20 @@ export function RegisterPage() {
               required
               autoComplete="email"
               error={fieldErrors.email}
+              // Immediately preceding a password field, Chrome treats this as
+              // a "username" and offers its saved-password picker ("Управление
+              // паролями") on focus - including a focus triggered by our own
+              // focusFirstError call above, not just a real click. There's no
+              // sign-in here to autofill (this is registration, not login), so
+              // the readonly-until-focus trick below suppresses it: the field
+              // is readOnly at the exact moment any focus event fires (which is
+              // what Chrome checks before deciding to show the picker), then
+              // immediately made editable within that same event, before the
+              // visitor can type - and set back to readOnly on blur so the
+              // next focus is guarded the same way.
+              readOnly
+              onFocus={(e) => { e.currentTarget.readOnly = false }}
+              onBlur={(e) => { e.currentTarget.readOnly = true }}
             />
             <PasswordField
               id="register-password"

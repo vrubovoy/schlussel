@@ -63,7 +63,10 @@ export function HelpPage() {
             <h2 style={{ margin: '0 0 0.75rem', fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>
               Первые шаги
             </h2>
-            <ol style={{ margin: 0, paddingLeft: '1.25rem', color: 'var(--text-muted)', fontSize: '0.8125rem', lineHeight: 1.7 }}>
+            {/* Tailwind's preflight resets ol/ul to `list-style: none`, so
+                the numbers need to be explicitly restored - otherwise
+                paddingLeft below just looks like unexplained indentation. */}
+            <ol style={{ margin: 0, paddingLeft: '1.25rem', listStyleType: 'decimal', color: 'var(--text-muted)', fontSize: '0.8125rem', lineHeight: 1.7 }}>
               <li>Зарегистрируйся (обычным способом или по ссылке-приглашению).</li>
               <li>Войди со своим email и паролем.</li>
               <li>Настройки аккаунта — в правом верхнем углу любого сервиса, под твоим именем.</li>
