@@ -51,8 +51,25 @@ export const invites = sqliteTable('invites', {
   usedByUserId: text('used_by_user_id').references(() => users.id, { onDelete: 'set null' }),
 })
 
+// Single shared value across the whole install (not per-user, not
+// authenticated) - the platform's three apps each live on their own
+// subdomain, so they can't read each other's localStorage directly;
+// schloss/kuvert sync the theme preference by reading/writing this
+// directly over a plain CORS'd fetch instead. `updatedAt` is deliberately
+// a plain integer, not `mode: 'timestamp'` like every other timestamp
+// column here - this value is never treated as a real Date anywhere, only
+// compared as an opaque, monotonically increasing counter that must match
+// the frontend's own epoch-ms `Date.now()` values exactly, with no
+// second-rounding from drizzle's timestamp mode.
+export const themePreference = sqliteTable('theme_preference', {
+  id: integer('id').primaryKey(),
+  theme: text('theme').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+})
+
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type RefreshToken = typeof refreshTokens.$inferSelect
 export type AuthCode = typeof authCodes.$inferSelect
 export type Invite = typeof invites.$inferSelect
+export type ThemePreference = typeof themePreference.$inferSelect

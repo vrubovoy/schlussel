@@ -29,6 +29,13 @@
       "when": 1785150427181,
       "tag": "0003_cuddly_william_stryker",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1785415768616,
+      "tag": "0004_secret_gunslinger",
+      "breakpoints": true
     }
   ]
 }
