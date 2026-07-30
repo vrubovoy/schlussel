@@ -164,6 +164,11 @@ fit best; add a new section if none fits.
   JS - it's a static file, not part of the React app. Needs
   `tor`'s narrow CSP exception (zudaR107/tor#23) to actually be
   frame-able cross-origin.
+- Bumped `schloss-ui` again: cross-origin theme sync didn't actually
+  work, a freshly-visited origin's own default-theme timestamp could
+  outrank a real pick made moments earlier on another origin
+  (schloss-ui#64) - routine sync, the hub page itself doesn't have this
+  bug (it never invents a timestamp of its own).
 
 ## Infrastructure
 - CI (tests + lint) on every push/PR.
