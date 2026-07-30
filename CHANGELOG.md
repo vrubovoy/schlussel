@@ -150,6 +150,9 @@ fit best; add a new section if none fits.
   `RegisterPage` strips it from the visible address bar via
   `history.replaceState` right after reading it. One-click link UX is
   unchanged.
+- Bumped the vendored `schloss-ui` submodule pointer to pick up
+  `ThemeToggle`'s dropdown-positioning fix (schloss-ui#59/#60) - routine
+  sync, no behavior change reported for schlussel's own header.
 
 ## Infrastructure
 - CI (tests + lint) on every push/PR.
