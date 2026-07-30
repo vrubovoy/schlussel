@@ -95,6 +95,9 @@ fit best; add a new section if none fits.
   picker), made editable again within that same event before the visitor
   can type, and set back to readonly on blur so the next focus is guarded
   the same way.
+- Applied the same readonly-until-focus guard to the login form's email
+  field - it has the identical "username before a password field" shape,
+  so the picker was still appearing there while filling in the form.
 
 ## UI
 - New `/admin` page: user management (role, force-logout, delete),

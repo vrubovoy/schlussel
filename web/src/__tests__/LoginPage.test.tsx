@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 const mockLogin = vi.fn()
@@ -426,6 +426,82 @@ describe('LoginPage — focus moves to the first invalid field', () => {
 
     await screen.findByText('Неверный email или пароль')
     await waitFor(() => expect(document.activeElement).toBe(document.getElementById('login-email')))
+    vi.unstubAllEnvs()
+  })
+})
+
+describe('LoginPage — email field guards against the saved-credentials picker', () => {
+  // login-email sits immediately before the password field, which makes
+  // Chrome/Edge treat it as a "username" field and offer the saved-password
+  // picker on any focus - including a programmatic one from this page's own
+  // error-focusing behavior (see focusField.ts). The fix is the standard
+  // readonly-until-focus technique: the input carries a static readOnly
+  // attribute that is imperatively removed on focus and reinstated on blur,
+  // so the browser sees readOnly at the exact instant any focus event fires
+  // (and skips the picker) while the field stays fully typable a moment
+  // later within that same synchronous event.
+  // (Mirrors the equivalent register-email tests in RegisterPage.test.tsx.)
+
+  it('is not readOnly once it receives focus', async () => {
+    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    const { LoginPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
+    render(<LoginPage />)
+
+    await screen.findByPlaceholderText(/example/i)
+    const emailInput = document.getElementById('login-email') as HTMLInputElement
+    fireEvent.focus(emailInput)
+    expect(emailInput.readOnly).toBe(false)
+    expect(emailInput).not.toHaveAttribute('readonly')
+    vi.unstubAllEnvs()
+  })
+
+  it('still accepts typed input once focused - no functional regression in normal typing', async () => {
+    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    const { LoginPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
+    render(<LoginPage />)
+
+    await screen.findByPlaceholderText(/example/i)
+    const emailInput = document.getElementById('login-email') as HTMLInputElement
+    fireEvent.focus(emailInput)
+    fireEvent.change(emailInput, { target: { value: 'alice@test.com' } })
+    expect(emailInput).toHaveValue('alice@test.com')
+    vi.unstubAllEnvs()
+  })
+
+  it('becomes readOnly again once blurred, ready to guard the next focus', async () => {
+    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    const { LoginPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
+    render(<LoginPage />)
+
+    await screen.findByPlaceholderText(/example/i)
+    const emailInput = document.getElementById('login-email') as HTMLInputElement
+    fireEvent.focus(emailInput)
+    expect(emailInput.readOnly).toBe(false)
+    fireEvent.blur(emailInput)
+    expect(emailInput.readOnly).toBe(true)
+    vi.unstubAllEnvs()
+  })
+
+  it('repeats the readOnly-on-blur / editable-on-focus pattern across multiple focus/blur cycles (not a one-shot guard)', async () => {
+    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    const { LoginPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
+    render(<LoginPage />)
+
+    await screen.findByPlaceholderText(/example/i)
+    const emailInput = document.getElementById('login-email') as HTMLInputElement
+
+    fireEvent.focus(emailInput)
+    expect(emailInput.readOnly).toBe(false)
+    fireEvent.blur(emailInput)
+    expect(emailInput.readOnly).toBe(true)
+
+    // Second cycle - a "one-shot" implementation that only guards the very
+    // first focus would fail to reinstate readOnly here, or fail to remove
+    // it again on this second focus.
+    fireEvent.focus(emailInput)
+    expect(emailInput.readOnly).toBe(false)
+    fireEvent.blur(emailInput)
+    expect(emailInput.readOnly).toBe(true)
     vi.unstubAllEnvs()
   })
 })
