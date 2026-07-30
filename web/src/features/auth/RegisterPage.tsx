@@ -6,6 +6,7 @@ import {
   readReturnTo, readCodeChallenge, readInviteCode, redirectWithCode, redirectToDefaultApp, withReturnTo, DEFAULT_APP_URL,
 } from '../../lib/returnTo'
 import { validateName, validateEmail, validatePassword, validatePasswordsMatch } from '../../lib/validation'
+import { focusField, focusFirstError } from '../../lib/focusField'
 import { ErrorPage } from './ErrorPage'
 import { PasswordField } from './PasswordField'
 import { Header } from '../../components/Header'
@@ -22,7 +23,13 @@ interface FieldErrors {
 export function RegisterPage() {
   const returnTo = readReturnTo()
   const codeChallenge = readCodeChallenge()
-  const inviteFromUrl = readInviteCode()
+  // Captured once (not re-read on every render): the effect below strips
+  // `#invite=...` from the live URL shortly after mount, so re-deriving
+  // this from window.location.hash on a later re-render (e.g. once the
+  // async self-challenge effect resolves and re-renders the component)
+  // would see the already-stripped hash and wrongly conclude there was
+  // never an invite - see the history.replaceState effect's own comment.
+  const [inviteFromUrl] = useState(() => readInviteCode())
   const hasInvite = inviteFromUrl.length > 0
   // Both present together, exactly as before - a partially-specified pair
   // is treated the same as neither being there.
@@ -106,6 +113,9 @@ export function RegisterPage() {
 
     if (Object.keys(nextErrors).length > 0) {
       setFieldErrors(nextErrors)
+      focusFirstError(nextErrors, {
+        name: 'register-name', email: 'register-email', password: 'register-password', confirmPassword: 'register-password-confirm',
+      })
       return
     }
     setFieldErrors({})
@@ -124,11 +134,13 @@ export function RegisterPage() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         setFieldErrors({ email: 'Этот email уже зарегистрирован' })
+        focusField('register-email')
       } else if (err instanceof ApiError && err.status === 400) {
         // Deliberately as vague as the server's own message - not
         // distinguishing "wrong code" from "expired"/"revoked"/"used"
         // avoids handing back a codebook for guessing invite codes.
         setFieldErrors({ inviteCode: inviteCode ? 'Неверный или истёкший код приглашения' : 'Нужен код приглашения' })
+        focusField('register-invite')
       } else {
         setFormError('Не удалось зарегистрироваться')
       }

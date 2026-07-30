@@ -395,6 +395,41 @@ describe('LoginPage — password visibility toggle', () => {
   })
 })
 
+describe('LoginPage — focus moves to the first invalid field', () => {
+  it('focuses login-email (first field in visual order) when the form is submitted entirely empty', async () => {
+    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    const { LoginPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
+    const user = userEvent.setup()
+    render(<LoginPage />)
+
+    await screen.findByPlaceholderText(/example/i)
+    await user.click(screen.getByRole('button', { name: 'Войти' }))
+
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('login-email')))
+    expect(mockLogin).not.toHaveBeenCalled()
+    vi.unstubAllEnvs()
+  })
+
+  it('focuses login-email when login rejects with 401 (invalid credentials)', async () => {
+    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    const { LoginPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
+    const ApiError = (await import('../lib/api')).ApiError
+    mockLogin.mockRejectedValue(new ApiError(401, 'Invalid credentials'))
+    const user = userEvent.setup()
+    render(<LoginPage />)
+
+    const emailInput = await screen.findByPlaceholderText(/example/i)
+    const passwordInput = document.querySelector('input[type="password"]') as HTMLInputElement
+    await user.type(emailInput, 'bad@user.com')
+    await user.type(passwordInput, 'wrong')
+    await user.click(screen.getByRole('button', { name: 'Войти' }))
+
+    await screen.findByText('Неверный email или пароль')
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('login-email')))
+    vi.unstubAllEnvs()
+  })
+})
+
 describe('LoginPage — register link', () => {
   it('carries the return_to param over to the register link', async () => {
     vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')

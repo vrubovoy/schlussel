@@ -3,6 +3,7 @@ import { Field, Button } from '@zudar107/schloss-ui'
 import { login, ApiError } from '../../lib/api'
 import { readReturnTo, readCodeChallenge, redirectWithCode, redirectToDefaultApp, withReturnTo } from '../../lib/returnTo'
 import { validateEmail } from '../../lib/validation'
+import { focusField, focusFirstError } from '../../lib/focusField'
 import { ErrorPage } from './ErrorPage'
 import { PasswordField } from './PasswordField'
 import { Header } from '../../components/Header'
@@ -107,6 +108,7 @@ export function LoginPage() {
 
     if (Object.keys(nextErrors).length > 0) {
       setFieldErrors(nextErrors)
+      focusFirstError(nextErrors, { email: 'login-email', password: 'login-password' })
       return
     }
     setFieldErrors({})
@@ -119,6 +121,7 @@ export function LoginPage() {
       if (err instanceof ApiError && err.status === 401) {
         setCredentialsInvalid(true)
         setFormError(INVALID_CREDENTIALS_MESSAGE)
+        focusField('login-email')
       } else {
         setFormError('Не удалось войти')
       }

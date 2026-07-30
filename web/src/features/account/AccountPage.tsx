@@ -8,6 +8,7 @@ import {
 } from '../../lib/api'
 import { readReturnTo, DEFAULT_APP_URL, type ReturnToResult } from '../../lib/returnTo'
 import { validateName, validatePassword, validatePasswordsMatch } from '../../lib/validation'
+import { focusField, focusFirstError } from '../../lib/focusField'
 import { PasswordField } from '../auth/PasswordField'
 import { Header } from '../../components/Header'
 import { Footer } from '../../components/Footer'
@@ -197,6 +198,7 @@ function ProfileCard({ user, accessToken, onNameChange }: ProfileCardProps) {
     const validationError = validateName(name)
     if (validationError) {
       setNameError(validationError)
+      focusField('account-name')
       return
     }
     setNameError('')
@@ -287,6 +289,7 @@ function PasswordCard({ accessToken }: { accessToken: string }) {
     if (matchError) nextErrors.confirmPassword = matchError
     if (Object.keys(nextErrors).length > 0) {
       setFieldErrors(nextErrors)
+      focusFirstError(nextErrors, { newPassword: 'account-new-password', confirmPassword: 'account-new-password-confirm' })
       return
     }
     setFieldErrors({})
@@ -301,6 +304,7 @@ function PasswordCard({ accessToken }: { accessToken: string }) {
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setFieldErrors({ currentPassword: 'Неверный текущий пароль' })
+        focusField('account-current-password')
       } else {
         setFormError('Не удалось изменить пароль')
       }
@@ -499,6 +503,7 @@ function DangerZoneCard({ accessToken }: { accessToken: string }) {
       window.location.href = DEFAULT_APP_URL
     } catch (err) {
       setPasswordError(err instanceof ApiError && err.status === 401 ? 'Неверный пароль' : 'Не удалось удалить аккаунт')
+      focusField('account-delete-password')
       setLoading(false)
     }
   }

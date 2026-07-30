@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 const mockRegister = vi.fn()
@@ -13,6 +13,13 @@ vi.mock('../lib/api', () => ({
     }
   },
 }))
+
+// Captured before any test has had a chance to run setLocation() below,
+// which deletes + reassigns window.location with a disconnected plain
+// object for the rest of this file (see the real-navigation describe block
+// near the bottom). Restoring this reference later gives back a live
+// Location that window.history.pushState actually updates.
+const REAL_LOCATION = window.location
 
 async function setLocation(search: string, hash: string = '') {
   vi.resetModules()
@@ -510,5 +517,127 @@ describe('RegisterPage — invite-gated registration', () => {
     })
     expect(screen.queryByText('Пароли не совпадают')).not.toBeInTheDocument()
     expect(screen.queryByText('Этот email уже зарегистрирован')).not.toBeInTheDocument()
+  })
+})
+
+describe('RegisterPage — focus moves to the first invalid field', () => {
+  it('focuses register-name (first field in visual order) when the form is submitted entirely empty', async () => {
+    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
+    const user = userEvent.setup()
+    render(<RegisterPage />)
+
+    await user.click(screen.getByRole('button', { name: 'Зарегистрироваться' }))
+
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('register-name')))
+    expect(mockRegister).not.toHaveBeenCalled()
+    vi.unstubAllEnvs()
+  })
+
+  it('focuses register-email when register rejects with 409 (email already registered)', async () => {
+    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
+    const ApiError = (await import('../lib/api')).ApiError
+    mockRegister.mockRejectedValue(new ApiError(409, 'Email already registered'))
+    const user = userEvent.setup()
+    render(<RegisterPage />)
+
+    await user.type(screen.getByPlaceholderText('Ваше имя'), 'Alice')
+    await user.type(screen.getByPlaceholderText(/example/i), 'dup@test.com')
+    await user.type(document.querySelectorAll('input[type="password"]')[0], 'password1')
+    await user.type(document.querySelectorAll('input[type="password"]')[1], 'password1')
+    await user.click(screen.getByRole('button', { name: 'Зарегистрироваться' }))
+
+    await screen.findByText('Этот email уже зарегистрирован')
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('register-email')))
+    vi.unstubAllEnvs()
+  })
+
+  it('focuses register-invite when register rejects with 400 (invalid/expired invite) on the bare invite-link path', async () => {
+    const INVITE_HASH = '#invite=BADCODE999'
+    const { RegisterPage } = await setLocation('', INVITE_HASH)
+    const ApiError = (await import('../lib/api')).ApiError
+    mockRegister.mockRejectedValue(new ApiError(400, 'Invalid or expired invite code'))
+    const user = userEvent.setup()
+    render(<RegisterPage />)
+
+    await user.type(await screen.findByPlaceholderText('Ваше имя'), 'Alice')
+    await user.type(screen.getByPlaceholderText(/example/i), 'alice@test.com')
+    await user.type(document.querySelectorAll('input[type="password"]')[0], 'password1')
+    await user.type(document.querySelectorAll('input[type="password"]')[1], 'password1')
+    await user.click(screen.getByRole('button', { name: 'Зарегистрироваться' }))
+
+    await waitFor(() => expect(mockRegister).toHaveBeenCalled())
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('register-invite')))
+  })
+})
+
+// These two tests drive navigation via the real jsdom window.history/window.location
+// (window.history.pushState against the actual window.location) rather than the
+// setLocation() helper above, which deletes and replaces window.location with a
+// disconnected plain object. RegisterPage's invite-link handling calls
+// history.replaceState on the real history/location, and later re-reads
+// window.location itself - a test built on the disconnected stub would not
+// observe that round-trip and could pass even if the real implementation
+// regressed (e.g. redirecting away after the very first render).
+function navigateReal(pathname: string, search: string = '', hash: string = '') {
+  // Restore the live Location captured at module load - by this point in
+  // the file, earlier tests using setLocation() above have very likely
+  // replaced window.location with a disconnected plain object that
+  // history.pushState cannot update at all (confirmed: pushState against
+  // that stub silently leaves href/pathname/hash unchanged).
+  // @ts-expect-error -- reassigning back to the original, real Location instance
+  window.location = REAL_LOCATION
+  window.history.pushState({}, '', `${pathname}${search}${hash}`)
+}
+
+async function loadRegisterPageAt(pathname: string, search: string = '', hash: string = '') {
+  vi.resetModules()
+  navigateReal(pathname, search, hash)
+  const mod = await import('../features/auth/RegisterPage')
+  return { RegisterPage: mod.RegisterPage }
+}
+
+async function flushPendingAsyncWork() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
+describe('RegisterPage — bare invite link renders the form without redirecting (real navigation)', () => {
+  beforeEach(() => {
+    window.history.pushState({}, '', '/register')
+  })
+
+  it('renders the registration form with the invite code pre-filled, and still does so after pending async setup finishes', async () => {
+    const { RegisterPage } = await loadRegisterPageAt('/register', '', '#invite=REGRESSCODE1')
+    render(<RegisterPage />)
+
+    // Initial assertion, using findBy* since the decision to render the form
+    // is made asynchronously (see the existing "invite-gated registration"
+    // block above).
+    expect(await screen.findByPlaceholderText('Ваше имя')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('REGRESSCODE1')).toBeInTheDocument()
+    expect(mockRegister).not.toHaveBeenCalled()
+
+    // Flush any further pending async/microtask work inside the page and
+    // let it re-render, then assert again. A regression where the form only
+    // renders correctly for the very first tick and then redirects away on
+    // a later effect must be caught here, not just immediately after mount.
+    await flushPendingAsyncWork()
+
+    expect(screen.getByPlaceholderText('Ваше имя')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('REGRESSCODE1')).toBeInTheDocument()
+    expect(mockRegister).not.toHaveBeenCalled()
+  })
+
+  it('for contrast: does not render the form (redirects away) when there is no invite fragment and no return_to/code_challenge', async () => {
+    const { RegisterPage } = await loadRegisterPageAt('/register', '', '')
+    render(<RegisterPage />)
+
+    await flushPendingAsyncWork()
+
+    expect(screen.queryByPlaceholderText('Ваше имя')).not.toBeInTheDocument()
+    expect(mockRegister).not.toHaveBeenCalled()
   })
 })

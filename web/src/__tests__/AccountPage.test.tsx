@@ -511,6 +511,77 @@ describe('AccountPage — editable name form', () => {
   })
 })
 
+describe('AccountPage — focus moves to the first invalid field', () => {
+  it('focuses account-name when the entered name fails validation', async () => {
+    const { user } = await renderLoggedIn()
+
+    const input = screen.getByLabelText('Имя')
+    await user.clear(input)
+    await user.type(input, 'Jane2')
+    await user.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+    expect(await screen.findByText('Имя не должно содержать цифры')).toBeInTheDocument()
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('account-name')))
+    expect(mockUpdateName).not.toHaveBeenCalled()
+  })
+
+  it('focuses account-new-password when the new password is too short', async () => {
+    const { user } = await renderLoggedIn()
+
+    await user.type(screen.getByLabelText('Текущий пароль'), 'oldpass123')
+    await user.type(screen.getByLabelText('Новый пароль'), 'short')
+    await user.type(screen.getByLabelText('Повторите новый пароль'), 'short')
+    await user.click(screen.getByRole('button', { name: 'Изменить пароль' }))
+
+    expect(await screen.findByText('Минимум 8 символов')).toBeInTheDocument()
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('account-new-password')))
+    expect(mockChangePassword).not.toHaveBeenCalled()
+  })
+
+  it('focuses account-new-password-confirm when the new password is valid but the confirmation does not match', async () => {
+    const { user } = await renderLoggedIn()
+
+    await user.type(screen.getByLabelText('Текущий пароль'), 'oldpass123')
+    await user.type(screen.getByLabelText('Новый пароль'), 'newpass456')
+    await user.type(screen.getByLabelText('Повторите новый пароль'), 'different789')
+    await user.click(screen.getByRole('button', { name: 'Изменить пароль' }))
+
+    expect(await screen.findByText(/не совпадают/i)).toBeInTheDocument()
+    await waitFor(() =>
+      expect(document.activeElement).toBe(document.getElementById('account-new-password-confirm')),
+    )
+    expect(mockChangePassword).not.toHaveBeenCalled()
+  })
+
+  it('focuses account-current-password when changePassword rejects with 401, despite a well-formed new password/confirm', async () => {
+    const { user } = await renderLoggedIn()
+    const ApiError = (await import('../lib/api')).ApiError
+    mockChangePassword.mockRejectedValue(new ApiError(401, 'Invalid current password'))
+
+    await user.type(screen.getByLabelText('Текущий пароль'), 'wrongcurrent')
+    await user.type(screen.getByLabelText('Новый пароль'), 'newpass456')
+    await user.type(screen.getByLabelText('Повторите новый пароль'), 'newpass456')
+    await user.click(screen.getByRole('button', { name: 'Изменить пароль' }))
+
+    await screen.findByText('Неверный текущий пароль')
+    await waitFor(() =>
+      expect(document.activeElement).toBe(document.getElementById('account-current-password')),
+    )
+  })
+
+  it('focuses account-delete-password when deleteAccount rejects with 401 (wrong password)', async () => {
+    const { user } = await renderLoggedIn()
+    const ApiError = (await import('../lib/api')).ApiError
+    mockDeleteAccount.mockRejectedValue(new ApiError(401, 'Invalid password'))
+
+    await user.type(screen.getByLabelText('Пароль'), 'wrongpassword')
+    await user.click(screen.getByRole('button', { name: 'Удалить аккаунт навсегда' }))
+
+    await screen.findByText('Неверный пароль')
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('account-delete-password')))
+  })
+})
+
 describe('AccountPage — active sessions', () => {
   const SESSION_CURRENT = {
     id: 's1',
