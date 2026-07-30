@@ -153,6 +153,17 @@ fit best; add a new section if none fits.
 - Bumped the vendored `schloss-ui` submodule pointer to pick up
   `ThemeToggle`'s dropdown-positioning fix (schloss-ui#59/#60) - routine
   sync, no behavior change reported for schlussel's own header.
+- Added `web/public/theme-sync.html`: a small static "hub" page for
+  cross-origin theme-preference sync. schloss's and kuvert's frontends
+  embed it in a hidden iframe (their own `localStorage` can't be read
+  from another origin directly) and exchange `postMessage` with it to
+  keep the shared `schloss-theme`/`schloss-theme-updated-at` keys in sync
+  - last write wins, by timestamp, relayed live between multiple open hub
+  instances via `BroadcastChannel` so a change made in one app's tab
+  reaches another app's already-open tab without a reload. Plain vanilla
+  JS - it's a static file, not part of the React app. Needs
+  `tor`'s narrow CSP exception (zudaR107/tor#23) to actually be
+  frame-able cross-origin.
 
 ## Infrastructure
 - CI (tests + lint) on every push/PR.
