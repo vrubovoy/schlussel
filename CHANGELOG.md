@@ -85,6 +85,16 @@ fit best; add a new section if none fits.
   it. Added a small `focusField`/`focusFirstError` helper and wired it
   into every form's error-setting code path across `RegisterPage`,
   `LoginPage`, and `AccountPage`'s profile/password/delete-account cards.
+- Fixed the above focus fix making Chrome/Edge pop up their saved-password
+  picker under the registration email field (it sits right before the
+  password fields, so the browser treats it as a "username" field and
+  offers the picker on any focus, including a programmatic one) - nothing
+  to autofill here, this is registration, not login. Applied the standard
+  "readonly until focus" technique to that one field: readonly at the
+  moment any focus event fires (what the browser checks before showing the
+  picker), made editable again within that same event before the visitor
+  can type, and set back to readonly on blur so the next focus is guarded
+  the same way.
 
 ## UI
 - New `/admin` page: user management (role, force-logout, delete),
@@ -198,3 +208,8 @@ fit best; add a new section if none fits.
   stuck at login/registration is exactly who needs it. Text skeleton
   only for now, with screenshot slots at `web/public/guide/schlussel-*.png`
   for the user to fill in later.
+- Fixed the `/help` page's "Первые шаги" numbered list rendering with no
+  visible `1./2./3.` markers - just unexplained indentation. Tailwind's
+  preflight base styles reset `ol`/`ul` to `list-style: none`; the page's
+  own inline style set the indent (`paddingLeft`) but never restored a
+  `list-style-type`. Added `listStyleType: 'decimal'` explicitly.
