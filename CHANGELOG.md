@@ -68,6 +68,23 @@ fit best; add a new section if none fits.
   either write commits. Added a per-IP failed-attempt limiter to `/login`
   (resets on success) - invite/PKCE codes are already unguessable by
   brute force, so this only needed to cover password guessing.
+- Fixed a bare invite link (`/register#invite=...`) bouncing a logged-out
+  visitor to `/login` instead of showing the registration form. `hasInvite`
+  was re-derived from `window.location.hash` on every render instead of
+  being captured once; a later re-render (triggered once an unrelated
+  async effect resolves) ran after the invite fragment had already been
+  stripped from the URL by another effect, so it read back `false` and
+  fired the "no invite, no external caller" redirect guard for the first
+  time. Now captured once on mount so a later effect stripping the URL
+  fragment can't retroactively change what the page thinks it was opened
+  with.
+- Fixed keyboard focus not moving to a field after it fails validation
+  (client-side, or an API error like a 409 on an already-registered
+  email) - the field got a red border and an error message, but the
+  visitor had to notice and click it manually before they could correct
+  it. Added a small `focusField`/`focusFirstError` helper and wired it
+  into every form's error-setting code path across `RegisterPage`,
+  `LoginPage`, and `AccountPage`'s profile/password/delete-account cards.
 
 ## UI
 - New `/admin` page: user management (role, force-logout, delete),
