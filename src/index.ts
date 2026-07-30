@@ -7,6 +7,7 @@ import { initKeys, getJwks } from './utils/keys.js'
 import { corsMiddleware } from './middleware/cors.js'
 import { authRouter } from './routes/auth.js'
 import { adminRouter, authenticateAdmin } from './routes/admin.js'
+import { themeRouter } from './routes/theme.js'
 import { openApiDocument } from './openapi.js'
 import { db } from './db/index.js'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
@@ -30,6 +31,7 @@ app.get('/health', (c) => c.json({ status: 'ok', service: 'Schlüssel' }))
 
 app.route('/auth', authRouter)
 app.route('/auth', adminRouter)
+app.route('/theme', themeRouter)
 
 // Lives here rather than inside admin.ts/adminRouter, since openapi.ts
 // imports admin.ts's own schemas to describe them - mounting it in

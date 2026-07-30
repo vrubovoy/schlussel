@@ -12,6 +12,13 @@
 		}
 	}
 
+	# Public, unauthenticated, cross-origin theme sync (schloss/kuvert call
+	# this directly) - no X-Schlussel-Frontend needed, that header is only
+	# a same-origin-trust signal for the session cookie, irrelevant here.
+	handle /theme {
+		reverse_proxy schlussel:4000
+	}
+
 	handle {
 		try_files {path} /index.html
 		file_server

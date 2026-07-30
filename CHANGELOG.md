@@ -169,6 +169,19 @@ fit best; add a new section if none fits.
   outrank a real pick made moments earlier on another origin
   (schloss-ui#64) - routine sync, the hub page itself doesn't have this
   bug (it never invents a timestamp of its own).
+- Removed `web/public/theme-sync.html` and replaced it with a real
+  `GET`/`PUT /theme` API: the hidden-iframe + `postMessage` design read/
+  wrote the hub page's own `localStorage`, which Firefox's Total Cookie
+  Protection (and Safari's ITP) partitions by whichever site embeds the
+  iframe - the exact same hub page embedded in schloss's and kuvert's
+  tabs saw two completely separate storage buckets, so nothing ever
+  actually synced, independent of any application-level bug. `/theme` is
+  public/unauthenticated (a single shared value for the whole install,
+  not per-user) - last write wins by an `updatedAt` client-supplied
+  counter, stored in a new `theme_preference` table. Added kuvert's own
+  origin to `ALLOWED_ORIGINS`'s default (it now calls this endpoint
+  directly, cross-origin) - it was missing before, harmless while the
+  iframe approach didn't need CORS at all.
 
 ## Infrastructure
 - CI (tests + lint) on every push/PR.
