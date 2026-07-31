@@ -44,3 +44,26 @@
     box-shadow: var(--shadow-md);
   }
 }
+
+/* Hides the login/register hero mascot on narrow viewports - same rule
+ * schloss's own index.css already uses for its home-page castle. */
+.hero-illustration {
+  display: block;
+}
+
+@media (max-width: 640px) {
+  .hero-illustration {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes key-turn {
+    0% { transform: rotate(0deg); }
+    50% { transform: rotate(25deg); }
+    100% { transform: rotate(0deg); }
+  }
+  .key-turn {
+    animation: key-turn 300ms ease;
+  }
+}
