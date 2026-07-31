@@ -3,23 +3,24 @@
 [![Test](https://github.com/zudaR107/schlussel/actions/workflows/test.yml/badge.svg)](https://github.com/zudaR107/schlussel/actions/workflows/test.yml)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 
-Part of the [Schloss platform](https://github.com/zudaR107/Hof).
+Part of the [Hof platform](https://github.com/zudaR107/Hof) — a suite of
+self-hosted personal services:
 
-Schlüssel ("key" in German) is the authentication service for **Schloss** — a small
-suite of self-hosted personal services. It's a standalone identity provider: it owns
+- [`schloss`](https://github.com/zudaR107/schloss) — home page / launcher
+- **`schlussel`** (this repo) — auth: accounts, login, tokens
+- [`kuvert`](https://github.com/zudaR107/kuvert) — envelope budgeting
+- [`tafel`](https://github.com/zudaR107/tafel) — task/project tracking
+- [`tor`](https://github.com/zudaR107/tor) — reverse-proxy gateway
+- [`schloss-ui`](https://github.com/zudaR107/schloss-ui) — shared frontend components
+- [`schloss-server-kit`](https://github.com/zudaR107/schloss-server-kit) — shared backend auth/CORS kit
+
+Schlüssel ("key" in German) is the authentication service for this suite of
+self-hosted personal services. It's a standalone identity provider: it owns
 user accounts and passwords, signs access tokens, and publishes a public key so every
-other Schloss service can verify those tokens on its own, without calling back to
+other service can verify those tokens on its own, without calling back to
 Schlüssel on every request.
 
-## How it fits into Schloss
-
-Schloss is split into independent, separately-deployed repos, each named after a German
-word related to what it does:
-
-- [`schloss`](https://github.com/zudaR107/schloss) — the home page / launcher
-- **`schlussel`** (this repo) — auth: accounts, login, tokens
-- [`kuvert`](https://github.com/zudaR107/kuvert) — envelope budgeting, the first real
-  service
+## Authentication flow
 
 Every other service redirects an unauthenticated visitor's browser here to sign in.
 Schlüssel hands back a short-lived RS256-signed JWT via an OAuth2 Authorization Code +
