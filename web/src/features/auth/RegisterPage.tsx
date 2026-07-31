@@ -11,6 +11,7 @@ import { ErrorPage } from './ErrorPage'
 import { PasswordField } from './PasswordField'
 import { Header } from '../../components/Header'
 import { Footer } from '../../components/Footer'
+import { HeroIllustration } from '../../components/HeroIllustration'
 
 interface FieldErrors {
   name?: string
@@ -43,6 +44,10 @@ export function RegisterPage() {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [formError, setFormError] = useState('')
   const [loading, setLoading] = useState(false)
+  // Set right before the post-register redirect fires, so the key badge
+  // gets one brief "turn" as a small success flourish instead of the page
+  // just vanishing the instant the request resolves.
+  const [keyTurning, setKeyTurning] = useState(false)
   // Only needed for the bare-invite-link path below, where there's no
   // external caller supplying its own code_challenge - generated once and
   // never persisted anywhere, since nothing here ever redeems the
@@ -130,7 +135,11 @@ export function RegisterPage() {
       // check will find no local token, bounce through schlussel's /login,
       // and that page's silent-reauth picks the cookie straight back up.
       // The stray `code` param is simply ignored by whatever it lands on.
-      redirectWithCode(returnToUrl, code)
+      setKeyTurning(true)
+      // The redirect above unloads this page - the 300ms delay just gives
+      // the key-turn animation (see index.css) time to actually play
+      // instead of being cut off mid-frame.
+      setTimeout(() => redirectWithCode(returnToUrl, code), 300)
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         setFieldErrors({ email: 'Этот email уже зарегистрирован' })
@@ -154,14 +163,24 @@ export function RegisterPage() {
 
       <div style={{
         flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'var(--bg-base)', padding: '1rem',
+        gap: '3rem', background: 'var(--bg-base)', padding: '1rem',
       }}>
+        <div className="hero-illustration" style={{ textAlign: 'center', maxWidth: 260 }}>
+          <HeroIllustration size={140} />
+          <p style={{ margin: '1rem 0 0', color: 'var(--text-secondary)', fontSize: '0.9375rem', lineHeight: 1.5 }}>
+            Один ключ — доступ ко всем сервисам платформы
+          </p>
+        </div>
+
         <div className="card-elevated" style={{ width: '100%', maxWidth: 380, padding: '2rem' }}>
           <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
-            <div style={{
-              width: 48, height: 48, background: 'var(--accent)', borderRadius: 12,
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.75rem',
-            }}>
+            <div
+              className={keyTurning ? 'key-turn' : undefined}
+              style={{
+                width: 48, height: 48, background: 'var(--accent)', borderRadius: 12,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.75rem',
+              }}
+            >
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
                 <circle cx="8" cy="15" r="4" />
                 <path d="M10.85 12.15 19 4" />
