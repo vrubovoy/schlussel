@@ -51,6 +51,15 @@
   display: block;
 }
 
+/* SVG roots default to display:block, so the containing
+ * text-align:center (see LoginPage/RegisterPage) has no effect on the
+ * mascot itself - only on the tagline text below it - leaving the two
+ * misaligned. Make the SVG an inline-level box so text-align can center
+ * it too. */
+.hero-illustration svg {
+  display: inline-block;
+}
+
 @media (max-width: 640px) {
   .hero-illustration {
     display: none;

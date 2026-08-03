@@ -162,11 +162,11 @@ export function LoginPage() {
                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.75rem',
               }}
             >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round">
-                <circle cx="12" cy="6" r="4" />
-                <path d="M12 10v9" />
-                <path d="M12 15h4" />
-                <path d="M12 18h3" />
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                <circle cx="8" cy="15" r="4" />
+                <path d="M10.85 12.15 19 4" />
+                <path d="M18 5l2 2" />
+                <path d="M15 8l2 2" />
               </svg>
             </div>
             <h1 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
