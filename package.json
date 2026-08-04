@@ -1,7 +1,7 @@
 {
   "name": "schlussel",
   "version": "0.1.0",
-  "description": "Schlüssel — auth service for the Schloss platform (RS256 JWT SSO)",
+  "description": "Schlüssel — auth service for the Hof platform (RS256 JWT SSO)",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {

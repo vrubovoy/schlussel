@@ -191,7 +191,7 @@ async function seedUser(
   return { id, email, name, role }
 }
 
-// Sends the same trust header schlussel-web's own Caddyfile adds on its
+// Sends the same trust header schlussel-frontend's own Caddyfile adds on its
 // /auth/* passthrough - without it, /login now correctly withholds the
 // session cookie (see the isTrustedOrigin gate this helper is simulating).
 async function login(email: string, password = DEFAULT_PASSWORD) {
