@@ -20,7 +20,7 @@ contractual — but you can expect an initial reply within a few days.
 
 ## Scope
 
-Schlüssel is the identity provider for the whole Schloss platform, so it
+Schlüssel is the identity provider for the whole Hof platform, so it
 gets the most careful review of any repo in it. In scope: password
 storage/hashing, JWT signing and JWKS key management, the OAuth2
 Authorization Code + PKCE exchange (`/auth/login`, `/auth/token`),

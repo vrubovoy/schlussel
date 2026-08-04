@@ -15,8 +15,8 @@ jobs:
         include:
           - image: schlussel
             dockerfile: Dockerfile
-          - image: schlussel-web
-            dockerfile: web/Dockerfile
+          - image: schlussel-frontend
+            dockerfile: frontend/Dockerfile
     steps:
       # schloss-ui is a git submodule - needs to be checked out so it's
       # present in the build context these Dockerfiles COPY from.

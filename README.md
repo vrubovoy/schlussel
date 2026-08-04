@@ -37,7 +37,7 @@ This repo has two parts:
 
 - the root package — the Hono API (accounts, login/register, invites, JWT issuance,
   JWKS, admin user/invite management, an OpenAPI spec)
-- `web/` — the hosted login/register pages every other service redirects to, `/account`
+- `frontend/` — the hosted login/register pages every other service redirects to, `/account`
   (the single unified account settings page every service's header links out to instead
   of showing its own), `/admin` (admin-only user/invite management), and `/docs` (an
   admin-only Swagger UI for this service's own API)
@@ -77,7 +77,7 @@ address).
 pnpm install
 cp .env.example .env
 pnpm dev              # API on http://localhost:4000
-pnpm --filter web dev # login/register pages on http://localhost:4001
+pnpm --filter frontend dev # login/register pages on http://localhost:4001
 ```
 
 Run the test suites and linter before committing:
@@ -85,8 +85,8 @@ Run the test suites and linter before committing:
 ```sh
 pnpm test
 pnpm lint
-pnpm --filter web test
-pnpm --filter web lint
+pnpm --filter frontend test
+pnpm --filter frontend lint
 ```
 
 ### Environment variables
@@ -101,7 +101,7 @@ See `.env.example` for the API. The important ones:
 | `JWT_ISSUER` | Must match what every other service expects as the token issuer |
 | `ALLOWED_ORIGINS` | Comma-separated CORS allowlist |
 
-`web/` reads two build-time variables (see `web/Dockerfile`): `VITE_ALLOWED_RETURN_ORIGINS`,
+`frontend/` reads two build-time variables (see `frontend/Dockerfile`): `VITE_ALLOWED_RETURN_ORIGINS`,
 a comma-separated allowlist of origins the hosted login page (and `/account`'s own "back
 to app" link) is allowed to redirect back to (a `return_to` pointing anywhere outside
 this list is rejected instead of followed - the open-redirect guard), and

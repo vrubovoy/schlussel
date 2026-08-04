@@ -27,7 +27,7 @@ RUN apk add --no-cache python3 make g++
 
 # pnpm's frozen-lockfile install verifies/resolves every package in the
 # lockfile, not just this project's own deps, even with --filter -
-# since web's @zudar107/schloss-ui is part of the same workspace
+# since frontend's @zudar107/schloss-ui is part of the same workspace
 # lockfile, its package.json (copied above) needs to be present for
 # this to resolve, despite never using the package itself. No registry
 # involved (it's a workspace:* link to the schloss-ui submodule), so

@@ -1,7 +1,7 @@
 # Contributing to Schlüssel
 
 Thanks for considering a contribution. This project is small and self-hosted-first, so
-please keep changes focused and in scope with the rest of the Schloss platform.
+please keep changes focused and in scope with the rest of the Hof platform.
 
 ## Getting set up
 
@@ -9,7 +9,7 @@ please keep changes focused and in scope with the rest of the Schloss platform.
 pnpm install
 cp .env.example .env
 pnpm dev              # API on http://localhost:4000
-pnpm --filter web dev # login/register pages on http://localhost:4001
+pnpm --filter frontend dev # login/register pages on http://localhost:4001
 ```
 
 See the [README](README.md) for environment variables and running the full stack with

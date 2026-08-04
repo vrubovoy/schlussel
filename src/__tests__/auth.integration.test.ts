@@ -120,7 +120,7 @@ async function registerUser(
   return res
 }
 
-// Sends the same trust header schlussel-web's own Caddyfile adds on its
+// Sends the same trust header schlussel-frontend's own Caddyfile adds on its
 // /auth/* passthrough - without it, /login now correctly withholds the
 // session cookie (see the isTrustedOrigin gate this helper is simulating).
 async function loginUser(email = 'alice@example.com', password = 'password123') {

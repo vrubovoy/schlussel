@@ -14,7 +14,7 @@ const REFRESH_TOKEN_MAX_AGE = 60 * 60 * 24 * 7 // 7 days in seconds
 const COOKIE_NAME = 'schloss_refresh'
 const AUTH_CODE_MAX_AGE = 60 // seconds
 
-// Injected only by schlussel/web's own proxy (Caddyfile + vite dev config)
+// Injected only by schlussel/frontend's own proxy (Caddyfile + vite dev config)
 // on its /auth/* passthrough - every consumer app's own /auth/* proxy
 // (kuvert, schloss) does NOT add this. Trust boundary: schlussel:4000 is
 // never published outside the docker network (see docker-compose.yml), so
@@ -410,7 +410,7 @@ authRouter.get('/me', async (c) => {
 })
 
 // Unified account settings - shared by every consumer app (see
-// schlussel/web's AccountPage), not a kuvert/schloss-specific concept.
+// schlussel/frontend's AccountPage), not a kuvert/schloss-specific concept.
 // Only ever called same-origin from that page, so - like the no-PKCE
 // branch of /login above - always trusted: safe to unconditionally set a
 // fresh session cookie here without an isTrustedOrigin gate.
