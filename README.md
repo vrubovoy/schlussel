@@ -10,6 +10,7 @@ self-hosted personal services:
 - **`schlussel`** (this repo) — auth: accounts, login, tokens
 - [`kuvert`](https://github.com/zudaR107/kuvert) — envelope budgeting
 - [`tafel`](https://github.com/zudaR107/tafel) — task/project tracking
+- [`zettel`](https://github.com/zudaR107/zettel) — markdown note-taking
 - [`tor`](https://github.com/zudaR107/tor) — reverse-proxy gateway
 - [`schloss-ui`](https://github.com/zudaR107/schloss-ui) — shared frontend components
 - [`schloss-server-kit`](https://github.com/zudaR107/schloss-server-kit) — shared backend auth/CORS kit
