@@ -95,6 +95,20 @@ describe('signAccessToken', () => {
     expect(typeof payload['exp']).toBe('number')
   })
 
+  it('payload contains weekStart/dateFormat/timezone when given, null when omitted', async () => {
+    const withPrefs = await signAccessToken({ ...ALICE, weekStart: 'sunday', dateFormat: 'ymd', timezone: 'Europe/Moscow' })
+    const prefsPayload = JSON.parse(Buffer.from(withPrefs.split('.')[1]!, 'base64url').toString())
+    expect(prefsPayload['weekStart']).toBe('sunday')
+    expect(prefsPayload['dateFormat']).toBe('ymd')
+    expect(prefsPayload['timezone']).toBe('Europe/Moscow')
+
+    const withoutPrefs = await signAccessToken(ALICE)
+    const noPrefsPayload = JSON.parse(Buffer.from(withoutPrefs.split('.')[1]!, 'base64url').toString())
+    expect(noPrefsPayload['weekStart']).toBe(null)
+    expect(noPrefsPayload['dateFormat']).toBe(null)
+    expect(noPrefsPayload['timezone']).toBe(null)
+  })
+
   it('access token expires roughly 15 minutes in the future', async () => {
     const before = Math.floor(Date.now() / 1000)
     const token = await signAccessToken(ALICE)
@@ -185,6 +199,22 @@ describe('verifyToken', () => {
     const token = await signAccessToken(ALICE)
     const payload = await verifyToken(token)
     expect(payload['role']).toBe(ALICE.role)
+  })
+
+  it('round-trips weekStart/dateFormat/timezone through sign -> verify', async () => {
+    const token = await signAccessToken({ ...ALICE, weekStart: 'sunday', dateFormat: 'ymd', timezone: 'Europe/Moscow' })
+    const payload = await verifyToken(token)
+    expect(payload.weekStart).toBe('sunday')
+    expect(payload.dateFormat).toBe('ymd')
+    expect(payload.timezone).toBe('Europe/Moscow')
+  })
+
+  it('weekStart/dateFormat/timezone are null when never set', async () => {
+    const token = await signAccessToken(ALICE)
+    const payload = await verifyToken(token)
+    expect(payload.weekStart).toBe(null)
+    expect(payload.dateFormat).toBe(null)
+    expect(payload.timezone).toBe(null)
   })
 
   it('rejects a token with a tampered signature', async () => {
