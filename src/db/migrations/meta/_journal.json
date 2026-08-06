@@ -36,6 +36,13 @@
       "when": 1785415768616,
       "tag": "0004_secret_gunslinger",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1786011956361,
+      "tag": "0005_spooky_slyde",
+      "breakpoints": true
     }
   ]
 }

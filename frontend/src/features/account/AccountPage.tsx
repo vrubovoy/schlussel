@@ -1,11 +1,17 @@
-import { useState, useEffect } from 'react'
-import { KeyRound, Trash2, User as UserIcon, Monitor, ShieldCheck } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import {
+  KeyRound, Trash2, User as UserIcon, Monitor, ShieldCheck, Globe, Bell, Link2, Lock, Download,
+  Send, Camera,
+} from 'lucide-react'
 import { Button, Field, Badge } from '@zudar107/schloss-ui'
 import { generateCodeVerifier, generateCodeChallenge } from '../../lib/pkce'
 import {
   refreshSession, fetchMe, exchangeCode, changePassword, deleteAccount, updateName,
   listSessions, revokeSession, logoutEverywhere, ApiError, type AuthUser, type Session,
+  fetchProfile, updateProfile, uploadAvatar, deleteAvatar, listConnectedAccounts, exportAccountData,
+  type Profile, type ConnectedAccount, type DateFormat, type WeekStart, type Language,
 } from '../../lib/api'
+import { MAX_AVATAR_BYTES, readFileAsDataUrl } from '../../lib/avatar'
 import { readReturnTo, DEFAULT_APP_URL, type ReturnToResult } from '../../lib/returnTo'
 import { validateName, validatePassword, validatePasswordsMatch } from '../../lib/validation'
 import { focusField, focusFirstError } from '../../lib/focusField'
@@ -134,7 +140,12 @@ export function AccountPage() {
             onNameChange={(name) => setUser((u) => (u ? { ...u, name } : u))}
           />
           <PasswordCard accessToken={accessToken} />
+          <PreferencesCard accessToken={accessToken} />
+          <NotificationsCard accessToken={accessToken} />
+          <ConnectedAccountsCard accessToken={accessToken} />
           <SessionsCard accessToken={accessToken} />
+          <PrivacyCard />
+          <DataExportCard accessToken={accessToken} />
           <DangerZoneCard accessToken={accessToken} />
         </div>
       </div>
@@ -182,10 +193,55 @@ function ProfileCard({ user, accessToken, onNameChange }: ProfileCardProps) {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null)
+  const [avatarError, setAvatarError] = useState('')
+  const [avatarLoading, setAvatarLoading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setName(user.name)
   }, [user.name])
+
+  useEffect(() => {
+    let cancelled = false
+    fetchProfile(accessToken).then((p) => { if (!cancelled) setAvatarDataUrl(p.avatarDataUrl) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [accessToken])
+
+  async function handleAvatarFile(file: File) {
+    setAvatarError('')
+    if (!file.type.startsWith('image/')) {
+      setAvatarError('Выберите файл изображения')
+      return
+    }
+    if (file.size > MAX_AVATAR_BYTES) {
+      setAvatarError(`Файл слишком большой (максимум ${Math.round(MAX_AVATAR_BYTES / 1024)} КБ)`)
+      return
+    }
+    setAvatarLoading(true)
+    try {
+      const dataUrl = await readFileAsDataUrl(file)
+      const updated = await uploadAvatar(accessToken, dataUrl)
+      setAvatarDataUrl(updated.avatarDataUrl)
+    } catch {
+      setAvatarError('Не удалось загрузить изображение')
+    } finally {
+      setAvatarLoading(false)
+    }
+  }
+
+  async function handleAvatarRemove() {
+    setAvatarError('')
+    setAvatarLoading(true)
+    try {
+      const updated = await deleteAvatar(accessToken)
+      setAvatarDataUrl(updated.avatarDataUrl)
+    } catch {
+      setAvatarError('Не удалось удалить изображение')
+    } finally {
+      setAvatarLoading(false)
+    }
+  }
 
   const trimmed = name.trim()
   const dirty = trimmed.length > 0 && trimmed !== user.name
@@ -223,15 +279,58 @@ function ProfileCard({ user, accessToken, onNameChange }: ProfileCardProps) {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', marginBottom: '1.125rem' }}>
-        <div style={{
-          width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
-          background: 'var(--accent)', color: '#fff', fontWeight: 700, fontSize: '1.0625rem',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          {user.name.trim().charAt(0).toUpperCase()}
+        <div
+          onClick={() => fileInputRef.current?.click()}
+          title="Изменить фото"
+          style={{
+            position: 'relative', width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
+            background: avatarDataUrl ? undefined : 'var(--accent)', color: '#fff', fontWeight: 700, fontSize: '1.0625rem',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+            overflow: 'hidden', opacity: avatarLoading ? 0.6 : 1,
+          }}
+        >
+          {avatarDataUrl ? (
+            <img src={avatarDataUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (
+            user.name.trim().charAt(0).toUpperCase()
+          )}
+          <div style={{
+            position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0,
+            transition: 'opacity 150ms',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.opacity = '1' }}
+          onMouseLeave={(e) => { e.currentTarget.style.opacity = '0' }}
+          >
+            <Camera size={16} color="#fff" />
+          </div>
         </div>
-        <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>{user.email}</div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleAvatarFile(f); e.target.value = '' }}
+        />
+        <div>
+          <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: avatarDataUrl ? 4 : 0 }}>{user.email}</div>
+          {avatarDataUrl && (
+            <button
+              type="button"
+              onClick={handleAvatarRemove}
+              disabled={avatarLoading}
+              style={{ border: 'none', background: 'none', padding: 0, fontSize: '0.75rem', color: 'var(--danger)', cursor: 'pointer' }}
+            >
+              Удалить фото
+            </button>
+          )}
+        </div>
       </div>
+      {avatarError && (
+        <div style={{ marginBottom: '1.125rem', marginTop: '-0.75rem', padding: '0.625rem 0.75rem', background: 'var(--danger-muted)', border: '1px solid var(--danger)', borderRadius: 8, fontSize: '0.8125rem', color: 'var(--danger)' }}>
+          {avatarError}
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
         <Field
@@ -369,6 +468,325 @@ function PasswordCard({ accessToken }: { accessToken: string }) {
   )
 }
 
+// Real IANA zone list where the browser supports it (every evergreen
+// browser does); a short common-zone fallback otherwise so the select
+// still works rather than being empty.
+const FALLBACK_TIMEZONES = [
+  'UTC', 'Europe/Moscow', 'Europe/London', 'Europe/Berlin', 'America/New_York',
+  'America/Los_Angeles', 'Asia/Dubai', 'Asia/Kolkata', 'Asia/Shanghai', 'Asia/Tokyo',
+]
+function listTimezones(): string[] {
+  const supportedValuesOf = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf
+  try {
+    return supportedValuesOf ? supportedValuesOf('timeZone') : FALLBACK_TIMEZONES
+  } catch {
+    return FALLBACK_TIMEZONES
+  }
+}
+
+const DATE_FORMAT_OPTIONS: { value: DateFormat; label: string }[] = [
+  { value: 'dmy', label: `ДД.ММ.ГГГГ (например, ${formatSampleDate('dmy')})` },
+  { value: 'mdy', label: `ММ/ДД/ГГГГ (например, ${formatSampleDate('mdy')})` },
+  { value: 'ymd', label: `ГГГГ-ММ-ДД (например, ${formatSampleDate('ymd')})` },
+]
+
+function formatSampleDate(format: DateFormat): string {
+  const d = new Date(2026, 11, 31)
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const yyyy = d.getFullYear()
+  if (format === 'mdy') return `${mm}/${dd}/${yyyy}`
+  if (format === 'ymd') return `${yyyy}-${mm}-${dd}`
+  return `${dd}.${mm}.${yyyy}`
+}
+
+// Preferences that don't need per-field validation, so unlike
+// ProfileCard/PasswordCard above this doesn't build up separate
+// dirty/error/success state per field - every change is its own small
+// PATCH /profile call, applied immediately (the same interaction the
+// rest of the platform already uses for a plain select/toggle, e.g.
+// ThemeToggle), with just enough local success/error feedback to show it
+// landed.
+function PreferencesCard({ accessToken }: { accessToken: string }) {
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [saving, setSaving] = useState<string | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    fetchProfile(accessToken).then((p) => { if (!cancelled) setProfile(p) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [accessToken])
+
+  async function save(field: string, data: Parameters<typeof updateProfile>[1]) {
+    setError('')
+    setSaving(field)
+    try {
+      const updated = await updateProfile(accessToken, data)
+      setProfile(updated)
+    } catch {
+      setError('Не удалось сохранить')
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  if (!profile) return null
+
+  return (
+    <div className="card" style={{ padding: '1.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+        <Globe size={17} color="var(--text-secondary)" />
+        <h2 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>Региональные настройки</h2>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+        <Field
+          as="select"
+          label="Часовой пояс"
+          value={profile.timezone ?? ''}
+          onChange={(e) => void save('timezone', { timezone: e.target.value || null })}
+          disabled={saving === 'timezone'}
+        >
+          <option value="">Определять по браузеру</option>
+          {listTimezones().map((tz) => <option key={tz} value={tz}>{tz}</option>)}
+        </Field>
+
+        <Field
+          as="select"
+          label="Формат даты"
+          value={profile.dateFormat ?? ''}
+          onChange={(e) => void save('dateFormat', { dateFormat: (e.target.value || null) as DateFormat | null })}
+          disabled={saving === 'dateFormat'}
+        >
+          <option value="">По умолчанию (ДД.ММ.ГГГГ)</option>
+          {DATE_FORMAT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </Field>
+
+        <Field
+          as="select"
+          label="Первый день недели"
+          value={profile.weekStart ?? ''}
+          onChange={(e) => void save('weekStart', { weekStart: (e.target.value || null) as WeekStart | null })}
+          disabled={saving === 'weekStart'}
+        >
+          <option value="">По умолчанию (Понедельник)</option>
+          <option value="monday">Понедельник</option>
+          <option value="sunday">Воскресенье</option>
+        </Field>
+
+        <div>
+          <Field
+            as="select"
+            label="Язык интерфейса"
+            value={profile.language ?? ''}
+            onChange={(e) => void save('language', { language: (e.target.value || null) as Language | null })}
+            disabled={saving === 'language'}
+          >
+            <option value="">Русский (по умолчанию)</option>
+            <option value="ru">Русский</option>
+            <option value="en">English</option>
+          </Field>
+          <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            Пока переводов ещё нет ни в одном сервисе — этот выбор просто сохраняется и вступит в силу,
+            когда появится переключение языка в интерфейсе.
+          </p>
+        </div>
+
+        {saving && (
+          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>Сохранение…</p>
+        )}
+        {error && (
+          <div style={{ padding: '0.625rem 0.75rem', background: 'var(--danger-muted)', border: '1px solid var(--danger)', borderRadius: 8, fontSize: '0.8125rem', color: 'var(--danger)' }}>
+            {error}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const NOTIFICATION_OPTIONS: { key: 'notifyInApp' | 'notifyBrowserPush' | 'notifyTelegram'; label: string; caption: string; available: boolean }[] = [
+  { key: 'notifyInApp', label: 'Уведомления в приложении', caption: 'Центр уведомлений появится вместе с сервисом уведомлений.', available: false },
+  { key: 'notifyBrowserPush', label: 'Push-уведомления в браузере', caption: 'Потребует разрешения браузера — появится вместе с сервисом уведомлений.', available: false },
+  { key: 'notifyTelegram', label: 'Уведомления в Telegram', caption: 'Потребует привязки Telegram-аккаунта — появится вместе с сервисом уведомлений.', available: false },
+]
+
+// Every toggle here is a stored preference with no running consumer yet -
+// see the schema.ts comment on these columns for why that's the honest
+// state of things right now, and NOTIFICATION_OPTIONS' captions say so
+// in the UI too rather than implying these already do something.
+function NotificationsCard({ accessToken }: { accessToken: string }) {
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [saving, setSaving] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchProfile(accessToken).then((p) => { if (!cancelled) setProfile(p) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [accessToken])
+
+  async function toggle(key: 'notifyInApp' | 'notifyBrowserPush' | 'notifyTelegram', value: boolean) {
+    setSaving(key)
+    try {
+      const updated = await updateProfile(accessToken, { [key]: value })
+      setProfile(updated)
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  if (!profile) return null
+
+  return (
+    <div className="card" style={{ padding: '1.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+        <Bell size={17} color="var(--text-secondary)" />
+        <h2 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>Уведомления</h2>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        {NOTIFICATION_OPTIONS.map((opt) => (
+          <label key={opt.key} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={profile[opt.key]}
+              disabled={saving === opt.key}
+              onChange={(e) => void toggle(opt.key, e.target.checked)}
+              style={{ marginTop: 3, flexShrink: 0 }}
+            />
+            <span>
+              <span style={{ display: 'block', fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 500 }}>{opt.label}</span>
+              <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{opt.caption}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Always shows an empty list today - see connectedAccounts' schema.ts
+// comment: there's no connect flow yet (no Telegram bot to hand off to),
+// so nothing ever populates this table. The "Подключить" button is
+// disabled rather than hidden, so the eventual real flow has an obvious
+// place to wire itself into rather than needing new UI built from
+// scratch alongside it.
+function ConnectedAccountsCard({ accessToken }: { accessToken: string }) {
+  const [accounts, setAccounts] = useState<ConnectedAccount[] | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    listConnectedAccounts(accessToken).then((a) => { if (!cancelled) setAccounts(a) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [accessToken])
+
+  return (
+    <div className="card" style={{ padding: '1.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+        <Link2 size={17} color="var(--text-secondary)" />
+        <h2 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>Связанные аккаунты</h2>
+      </div>
+
+      {accounts && accounts.length === 0 && (
+        <p style={{ margin: '0 0 1rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>Ничего не подключено.</p>
+      )}
+      {accounts && accounts.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
+          {accounts.map((a) => (
+            <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', color: 'var(--text-primary)' }}>
+              <Send size={14} />
+              {a.externalUsername ?? a.provider}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Button variant="secondary" disabled style={{ padding: '0.5rem 0.875rem', fontSize: '0.8125rem' }}>
+        <Send size={14} /> Подключить Telegram
+      </Button>
+      <p style={{ margin: '0.5rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+        Появится вместе с сервисом уведомлений — Telegram станет каналом для мобильных уведомлений.
+      </p>
+    </div>
+  )
+}
+
+// No real "who can see what" setting exists on this platform yet - it's
+// single-user, self-hosted, with no sharing/visibility features anywhere
+// (see the account settings page's own header comment on scope). Rather
+// than invent a toggle with nothing behind it, this states the actual,
+// true privacy posture as information - real content, just not
+// interactive, until an actual privacy-relevant setting exists to add.
+function PrivacyCard() {
+  return (
+    <div className="card" style={{ padding: '1.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+        <Lock size={17} color="var(--text-secondary)" />
+        <h2 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>Приватность</h2>
+      </div>
+      <ul style={{ margin: 0, paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+        <li>Платформа развёрнута на твоём собственном сервере — данные никуда, кроме него, не уходят.</li>
+        <li>Нет стороннего аналитического или рекламного трекинга.</li>
+        <li>Платформа однопользовательская — делиться данными с другими аккаунтами сейчас негде и незачем.</li>
+      </ul>
+    </div>
+  )
+}
+
+function DataExportCard({ accessToken }: { accessToken: string }) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  async function handleExport() {
+    setError('')
+    setLoading(true)
+    try {
+      const data = await exportAccountData(accessToken)
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `schlussel-account-export-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      setError('Не удалось экспортировать данные')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="card" style={{ padding: '1.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+        <Download size={17} color="var(--text-secondary)" />
+        <h2 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>Экспорт данных</h2>
+      </div>
+      <p style={{ margin: '0 0 1rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+        Скачивает данные твоего аккаунта Schlüssel (профиль, настройки, список сессий) в формате JSON.
+        Данные Kuvert, Tafel и Zettel экспортируются отдельно, в настройках каждого сервиса.
+      </p>
+      {error && (
+        <div style={{ marginBottom: '1rem', padding: '0.625rem 0.75rem', background: 'var(--danger-muted)', border: '1px solid var(--danger)', borderRadius: 8, fontSize: '0.8125rem', color: 'var(--danger)' }}>
+          {error}
+        </div>
+      )}
+      <Button variant="secondary" onClick={handleExport} disabled={loading} style={{ padding: '0.5rem 0.875rem', fontSize: '0.8125rem' }}>
+        {loading ? 'Экспорт…' : 'Скачать мои данные'}
+      </Button>
+    </div>
+  )
+}
+
+const SESSION_TIMEOUT_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: 'По умолчанию (7 дней)' },
+  { value: '15', label: '15 минут' },
+  { value: '60', label: '1 час' },
+  { value: '1440', label: '1 день' },
+  { value: '10080', label: '7 дней' },
+]
+
 function formatSessionDate(iso: string): string {
   return new Date(iso).toLocaleString('ru-RU', {
     day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -381,6 +799,8 @@ function SessionsCard({ accessToken }: { accessToken: string }) {
   const [error, setError] = useState('')
   const [revokingId, setRevokingId] = useState<string | null>(null)
   const [loggingOutEverywhere, setLoggingOutEverywhere] = useState(false)
+  const [sessionTimeout, setSessionTimeout] = useState<number | null>(null)
+  const [timeoutSaving, setTimeoutSaving] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -388,10 +808,24 @@ function SessionsCard({ accessToken }: { accessToken: string }) {
       .then((s) => { if (!cancelled) setSessions(s) })
       .catch(() => { if (!cancelled) setError('Не удалось загрузить список сессий') })
       .finally(() => { if (!cancelled) setLoading(false) })
+    fetchProfile(accessToken).then((p) => { if (!cancelled) setSessionTimeout(p.sessionTimeoutMinutes) }).catch(() => {})
     return () => {
       cancelled = true
     }
   }, [accessToken])
+
+  async function handleTimeoutChange(value: string) {
+    setTimeoutSaving(true)
+    try {
+      const minutes = value ? Number(value) : null
+      const updated = await updateProfile(accessToken, { sessionTimeoutMinutes: minutes })
+      setSessionTimeout(updated.sessionTimeoutMinutes)
+    } catch {
+      setError('Не удалось сохранить время жизни сессии')
+    } finally {
+      setTimeoutSaving(false)
+    }
+  }
 
   async function handleRevoke(id: string) {
     setError('')
@@ -433,6 +867,21 @@ function SessionsCard({ accessToken }: { accessToken: string }) {
         >
           {loggingOutEverywhere ? 'Выход…' : 'Выйти на всех устройствах'}
         </Button>
+      </div>
+
+      <div style={{ marginBottom: '1rem' }}>
+        <Field
+          as="select"
+          label="Автоматический выход после бездействия"
+          value={sessionTimeout != null ? String(sessionTimeout) : ''}
+          onChange={(e) => void handleTimeoutChange(e.target.value)}
+          disabled={timeoutSaving}
+        >
+          {SESSION_TIMEOUT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </Field>
+        <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+          Действует только для новых сессий (следующего входа), уже открытые сессии не сокращаются задним числом.
+        </p>
       </div>
 
       {error && (

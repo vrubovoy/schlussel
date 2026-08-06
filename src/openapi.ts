@@ -7,6 +7,8 @@ import {
   changePasswordSchema,
   deleteAccountSchema,
   nameSchema,
+  profileUpdateSchema,
+  avatarSchema,
 } from './routes/auth.js'
 import { createInviteSchema, roleSchema, adminDeleteSchema } from './routes/admin.js'
 
@@ -39,6 +41,29 @@ const sessionSchema = z.object({
   createdAt: z.string(),
   expiresAt: z.string(),
   current: z.boolean(),
+})
+
+const profileSchema = z.object({
+  id: z.string(),
+  email: z.string(),
+  name: z.string(),
+  role: z.enum(['admin', 'user']),
+  avatarDataUrl: z.string().nullable(),
+  timezone: z.string().nullable(),
+  dateFormat: z.enum(['dmy', 'mdy', 'ymd']).nullable(),
+  weekStart: z.enum(['monday', 'sunday']).nullable(),
+  language: z.enum(['ru', 'en']).nullable(),
+  notifyInApp: z.boolean(),
+  notifyBrowserPush: z.boolean(),
+  notifyTelegram: z.boolean(),
+  sessionTimeoutMinutes: z.number().nullable(),
+})
+
+const connectedAccountSchema = z.object({
+  id: z.string(),
+  provider: z.enum(['telegram']),
+  externalUsername: z.string().nullable(),
+  connectedAt: z.string(),
 })
 
 const inviteSchema = z.object({
@@ -158,6 +183,112 @@ registry.registerPath({
   security: [{ bearerAuth: [] }],
   request: { body: { content: { 'application/json': { schema: nameSchema } } } },
   responses: { 200: { description: 'OK', content: { 'application/json': { schema: userSchema } } } },
+})
+
+registry.registerPath({
+  method: 'get',
+  path: '/profile',
+  summary: 'Get the current user\'s full profile',
+  description: 'The extended profile shown on the account settings page - GET /me stays the small identity shape every consumer app\'s own auth flow already expects.',
+  security: [{ bearerAuth: [] }],
+  responses: {
+    200: { description: 'OK', content: { 'application/json': { schema: profileSchema } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: errorSchema } } },
+  },
+})
+
+registry.registerPath({
+  method: 'patch',
+  path: '/profile',
+  summary: 'Update the current user\'s profile settings',
+  description: 'Only the fields present in the request body are changed. Timezone/date format/week start/language are stored preferences with no reader yet anywhere on the platform; the notification toggles are stored preferences with no notification service yet to gate on them. sessionTimeoutMinutes is the one field that\'s fully functional today - it can only ever shorten, never extend past the platform default, how long a newly-established session lasts.',
+  security: [{ bearerAuth: [] }],
+  request: { body: { content: { 'application/json': { schema: profileUpdateSchema } } } },
+  responses: {
+    200: { description: 'OK', content: { 'application/json': { schema: profileSchema } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: errorSchema } } },
+  },
+})
+
+registry.registerPath({
+  method: 'put',
+  path: '/avatar',
+  summary: 'Upload the current user\'s avatar',
+  description: 'Stored as a base64 data URL directly on the user row - the platform has no dedicated file-storage service yet. Capped at MAX_AVATAR_BYTES of raw image bytes.',
+  security: [{ bearerAuth: [] }],
+  request: { body: { content: { 'application/json': { schema: avatarSchema } } } },
+  responses: {
+    200: { description: 'OK', content: { 'application/json': { schema: profileSchema } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: errorSchema } } },
+    400: { description: 'Not a valid image data URL, or over the size cap', content: { 'application/json': { schema: errorSchema } } },
+  },
+})
+
+registry.registerPath({
+  method: 'delete',
+  path: '/avatar',
+  summary: 'Remove the current user\'s avatar',
+  security: [{ bearerAuth: [] }],
+  responses: {
+    200: { description: 'OK', content: { 'application/json': { schema: profileSchema } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: errorSchema } } },
+  },
+})
+
+registry.registerPath({
+  method: 'get',
+  path: '/connected-accounts',
+  summary: 'List the current user\'s connected external accounts',
+  description: 'Always empty in practice today - Telegram is the only planned provider and there is no bot yet to hand a connect flow off to.',
+  security: [{ bearerAuth: [] }],
+  responses: { 200: { description: 'OK', content: { 'application/json': { schema: z.array(connectedAccountSchema) } } } },
+})
+
+registry.registerPath({
+  method: 'delete',
+  path: '/connected-accounts/{id}',
+  summary: 'Disconnect one of the current user\'s connected accounts',
+  security: [{ bearerAuth: [] }],
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: { description: 'OK' },
+    404: { description: 'Not found', content: { 'application/json': { schema: errorSchema } } },
+  },
+})
+
+registry.registerPath({
+  method: 'get',
+  path: '/export',
+  summary: 'Export the current user\'s Schlüssel account data',
+  description: 'Scoped to what this service owns (profile fields, session metadata) - not a platform-wide export. Kuvert/Tafel/Zettel each hold their own data and would need their own export.',
+  security: [{ bearerAuth: [] }],
+  responses: {
+    200: {
+      description: 'OK',
+      content: {
+        'application/json': {
+          schema: z.object({
+            exportedAt: z.string(),
+            scope: z.literal('schlussel-account-only'),
+            profile: profileSchema,
+            createdAt: z.string(),
+            sessions: z.array(z.object({
+              userAgent: z.string().nullable(),
+              ipAddress: z.string().nullable(),
+              createdAt: z.string(),
+              expiresAt: z.string(),
+            })),
+            connectedAccounts: z.array(z.object({
+              provider: z.enum(['telegram']),
+              externalUsername: z.string().nullable(),
+              connectedAt: z.string(),
+            })),
+          }),
+        },
+      },
+    },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: errorSchema } } },
+  },
 })
 
 registry.registerPath({
