@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 const mockRefreshSession = vi.fn()
@@ -11,6 +11,12 @@ const mockUpdateName = vi.fn()
 const mockListSessions = vi.fn()
 const mockRevokeSession = vi.fn()
 const mockLogoutEverywhere = vi.fn()
+const mockFetchProfile = vi.fn()
+const mockUpdateProfile = vi.fn()
+const mockUploadAvatar = vi.fn()
+const mockDeleteAvatar = vi.fn()
+const mockListConnectedAccounts = vi.fn()
+const mockExportAccountData = vi.fn()
 
 vi.mock('../lib/api', () => ({
   refreshSession: (...args: unknown[]) => mockRefreshSession(...args),
@@ -22,6 +28,12 @@ vi.mock('../lib/api', () => ({
   listSessions: (...args: unknown[]) => mockListSessions(...args),
   revokeSession: (...args: unknown[]) => mockRevokeSession(...args),
   logoutEverywhere: (...args: unknown[]) => mockLogoutEverywhere(...args),
+  fetchProfile: (...args: unknown[]) => mockFetchProfile(...args),
+  updateProfile: (...args: unknown[]) => mockUpdateProfile(...args),
+  uploadAvatar: (...args: unknown[]) => mockUploadAvatar(...args),
+  deleteAvatar: (...args: unknown[]) => mockDeleteAvatar(...args),
+  listConnectedAccounts: (...args: unknown[]) => mockListConnectedAccounts(...args),
+  exportAccountData: (...args: unknown[]) => mockExportAccountData(...args),
   ApiError: class ApiError extends Error {
     status: number
     constructor(status: number, message: string) {
@@ -43,6 +55,11 @@ async function setLocation(search: string) {
 }
 
 const USER = { id: '1', email: 'jane@example.com', name: 'Jane Doe', role: 'user' }
+const PROFILE = {
+  ...USER,
+  avatarDataUrl: null, timezone: null, dateFormat: null, weekStart: null, language: null,
+  notifyInApp: true, notifyBrowserPush: false, notifyTelegram: false, sessionTimeoutMinutes: null,
+}
 
 // Common path used by most tests below the bootstrap stage: a valid
 // refreshSession + fetchMe round-trip landing on the fixture user, so the
@@ -52,9 +69,9 @@ async function renderLoggedIn(search = '') {
   mockFetchMe.mockResolvedValue(USER)
   const { AccountPage } = await setLocation(search)
   const user = userEvent.setup()
-  render(<AccountPage />)
+  const { container } = render(<AccountPage />)
   await screen.findByText('Настройки аккаунта')
-  return { user }
+  return { user, container }
 }
 
 beforeEach(() => {
@@ -67,9 +84,20 @@ beforeEach(() => {
   mockListSessions.mockReset()
   mockRevokeSession.mockReset()
   mockLogoutEverywhere.mockReset()
+  mockFetchProfile.mockReset()
+  mockUpdateProfile.mockReset()
+  mockUploadAvatar.mockReset()
+  mockDeleteAvatar.mockReset()
+  mockListConnectedAccounts.mockReset()
+  mockExportAccountData.mockReset()
   // Default: an empty sessions list, so tests that don't care about the
   // sessions card (most of them) don't have to stub this themselves.
   mockListSessions.mockResolvedValue([])
+  // Same idea for the new cards' own independent fetches - a plain
+  // default profile/empty accounts list, so tests unrelated to them don't
+  // have to stub every new endpoint just to render past their loading state.
+  mockFetchProfile.mockResolvedValue(PROFILE)
+  mockListConnectedAccounts.mockResolvedValue([])
   sessionStorage.clear()
 })
 
@@ -727,5 +755,293 @@ describe('AccountPage — active sessions', () => {
     await waitFor(() => expect(mockLogoutEverywhere).toHaveBeenCalled())
     expect(window.location.href).toBe('')
     expect(screen.getByText('Настройки аккаунта')).toBeInTheDocument()
+  })
+})
+
+// ── New profile-settings feature (blind spec-based tests) ──────────────────
+//
+// Everything below tests the new PreferencesCard / NotificationsCard /
+// ConnectedAccountsCard / PrivacyCard / DataExportCard sections, the
+// avatar-upload addition to ProfileCard, and the session-timeout select
+// addition to SessionsCard - all written from the behavioral spec, without
+// reading AccountPage.tsx's new component bodies.
+
+describe('AccountPage — avatar upload', () => {
+  it('calls fetchProfile with the access token once bootstrap finishes', async () => {
+    await renderLoggedIn()
+    await waitFor(() => expect(mockFetchProfile).toHaveBeenCalledWith('token-abc'))
+  })
+
+  it('has a file input somewhere on the page for picking an avatar image', async () => {
+    const { container } = await renderLoggedIn()
+    const fileInput = container.querySelector('input[type="file"]')
+    expect(fileInput).toBeTruthy()
+  })
+
+  it('selecting an image file eventually calls uploadAvatar with the access token and a string payload', async () => {
+    const { container } = await renderLoggedIn()
+    mockUploadAvatar.mockResolvedValue({ ...PROFILE, avatarDataUrl: 'data:image/png;base64,xyz' })
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(['fake-image-content'], 'avatar.png', { type: 'image/png' })
+    Object.defineProperty(fileInput, 'files', { value: [file] })
+    fireEvent.change(fileInput)
+
+    await waitFor(() => expect(mockUploadAvatar).toHaveBeenCalled())
+    const args = mockUploadAvatar.mock.calls[0]
+    expect(args[0]).toBe('token-abc')
+    expect(typeof args[1]).toBe('string')
+  })
+
+  it('selecting a non-image file does not call uploadAvatar', async () => {
+    const { container } = await renderLoggedIn()
+
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(['just text'], 'notes.txt', { type: 'text/plain' })
+    Object.defineProperty(fileInput, 'files', { value: [file] })
+    fireEvent.change(fileInput)
+
+    // Give any async rejection path a chance to run before asserting the negative.
+    await new Promise((r) => setTimeout(r, 50))
+    expect(mockUploadAvatar).not.toHaveBeenCalled()
+  })
+})
+
+describe('AccountPage — PreferencesCard', () => {
+  it('renders labeled timezone, date-format, week-start and language selects once profile data loads', async () => {
+    await renderLoggedIn()
+    expect(await screen.findByLabelText(/часовой пояс/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/формат даты/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/первый день недели/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/язык/i)).toBeInTheDocument()
+  })
+
+  it('changing the timezone select calls updateProfile with the access token and the new timezone', async () => {
+    const { user } = await renderLoggedIn()
+    mockUpdateProfile.mockResolvedValue({ ...PROFILE, timezone: 'Europe/Moscow' })
+
+    const select = await screen.findByLabelText(/часовой пояс/i)
+    await user.selectOptions(select, 'Europe/Moscow')
+
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalled())
+    expect(mockUpdateProfile).toHaveBeenCalledWith(
+      'token-abc',
+      expect.objectContaining({ timezone: 'Europe/Moscow' }),
+    )
+  })
+
+  it('changing the date-format select calls updateProfile with the new dateFormat', async () => {
+    const { user } = await renderLoggedIn()
+    mockUpdateProfile.mockResolvedValue({ ...PROFILE, dateFormat: 'mdy' })
+
+    const select = await screen.findByLabelText(/формат даты/i)
+    await user.selectOptions(select, 'mdy')
+
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalled())
+    expect(mockUpdateProfile).toHaveBeenCalledWith(
+      'token-abc',
+      expect.objectContaining({ dateFormat: 'mdy' }),
+    )
+  })
+
+  it('changing the week-start select calls updateProfile with the new weekStart', async () => {
+    const { user } = await renderLoggedIn()
+    mockUpdateProfile.mockResolvedValue({ ...PROFILE, weekStart: 'sunday' })
+
+    const select = await screen.findByLabelText(/первый день недели/i)
+    await user.selectOptions(select, 'sunday')
+
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalled())
+    expect(mockUpdateProfile).toHaveBeenCalledWith(
+      'token-abc',
+      expect.objectContaining({ weekStart: 'sunday' }),
+    )
+  })
+
+  it('changing the language select calls updateProfile with the new language', async () => {
+    const { user } = await renderLoggedIn()
+    mockUpdateProfile.mockResolvedValue({ ...PROFILE, language: 'en' })
+
+    const select = await screen.findByLabelText(/язык/i)
+    await user.selectOptions(select, 'en')
+
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalled())
+    expect(mockUpdateProfile).toHaveBeenCalledWith(
+      'token-abc',
+      expect.objectContaining({ language: 'en' }),
+    )
+  })
+})
+
+describe('AccountPage — NotificationsCard', () => {
+  it('renders at least 3 checkboxes (in-app, browser push, Telegram)', async () => {
+    await renderLoggedIn()
+    const checkboxes = await screen.findAllByRole('checkbox')
+    expect(checkboxes.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('mentions that these notification channels are not fully working yet', async () => {
+    await renderLoggedIn()
+    await screen.findAllByRole('checkbox')
+    const text = document.body.textContent ?? ''
+    expect(text).toMatch(/появится|скоро|coming soon/i)
+  })
+
+  it('toggling the Telegram checkbox calls updateProfile with the access token and notifyTelegram: true', async () => {
+    const { user } = await renderLoggedIn()
+    mockUpdateProfile.mockResolvedValue({ ...PROFILE, notifyTelegram: true })
+    await screen.findAllByRole('checkbox')
+
+    const telegramCheckbox = screen.getByRole('checkbox', { name: /telegram/i })
+    expect(telegramCheckbox).not.toBeChecked()
+    await user.click(telegramCheckbox)
+
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalled())
+    expect(mockUpdateProfile).toHaveBeenCalledWith(
+      'token-abc',
+      expect.objectContaining({ notifyTelegram: true }),
+    )
+  })
+
+  it('toggling the browser-push checkbox calls updateProfile with the access token and notifyBrowserPush: true', async () => {
+    const { user } = await renderLoggedIn()
+    mockUpdateProfile.mockResolvedValue({ ...PROFILE, notifyBrowserPush: true })
+    await screen.findAllByRole('checkbox')
+
+    const pushCheckbox = screen.getByRole('checkbox', { name: /push/i })
+    expect(pushCheckbox).not.toBeChecked()
+    await user.click(pushCheckbox)
+
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalled())
+    expect(mockUpdateProfile).toHaveBeenCalledWith(
+      'token-abc',
+      expect.objectContaining({ notifyBrowserPush: true }),
+    )
+  })
+
+  it('toggling the in-app checkbox (the one initially checked, per the PROFILE fixture default) calls updateProfile with notifyInApp: false', async () => {
+    const { user } = await renderLoggedIn()
+    mockUpdateProfile.mockResolvedValue({ ...PROFILE, notifyInApp: false })
+    const checkboxes = await screen.findAllByRole('checkbox')
+
+    const telegramCheckbox = screen.getByRole('checkbox', { name: /telegram/i })
+    const pushCheckbox = screen.getByRole('checkbox', { name: /push/i })
+    const inAppCheckbox = checkboxes.find((cb) => cb !== telegramCheckbox && cb !== pushCheckbox)
+    expect(inAppCheckbox).toBeTruthy()
+    expect(inAppCheckbox).toBeChecked()
+
+    await user.click(inAppCheckbox!)
+
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalled())
+    expect(mockUpdateProfile).toHaveBeenCalledWith(
+      'token-abc',
+      expect.objectContaining({ notifyInApp: false }),
+    )
+  })
+})
+
+describe('AccountPage — ConnectedAccountsCard', () => {
+  it('calls listConnectedAccounts with the access token on mount', async () => {
+    await renderLoggedIn()
+    await waitFor(() => expect(mockListConnectedAccounts).toHaveBeenCalledWith('token-abc'))
+  })
+
+  it('shows a "nothing connected" message with the default empty list', async () => {
+    mockListConnectedAccounts.mockResolvedValue([])
+    await renderLoggedIn()
+    await waitFor(() => expect(mockListConnectedAccounts).toHaveBeenCalled())
+    await waitFor(() => {
+      const text = document.body.textContent ?? ''
+      expect(text).toMatch(/ничего не подключено|нет подключ/i)
+    })
+  })
+
+  it('shows a disabled "Connect Telegram" button', async () => {
+    await renderLoggedIn()
+    const button = await screen.findByRole('button', { name: /подключить telegram/i })
+    expect(button).toBeDisabled()
+  })
+})
+
+describe('AccountPage — PrivacyCard', () => {
+  it('renders a "Приватность" heading/text block', async () => {
+    await renderLoggedIn()
+    expect(await screen.findByText(/приватность/i)).toBeInTheDocument()
+  })
+
+  it('is purely informational - no interactive controls inside its own <section> wrapper', async () => {
+    await renderLoggedIn()
+    const heading = await screen.findByText(/приватность/i)
+    const section = heading.closest('section')
+    // Soft check per spec: only assert when we can cleanly scope to a
+    // dedicated <section> wrapper for this card.
+    if (section) {
+      const controls = within(section).queryAllByRole('button').concat(
+        within(section).queryAllByRole('checkbox'),
+        within(section).queryAllByRole('textbox'),
+        within(section).queryAllByRole('combobox'),
+      )
+      expect(controls.length).toBe(0)
+    }
+  })
+})
+
+describe('AccountPage — DataExportCard', () => {
+  it('renders a data-export button', async () => {
+    await renderLoggedIn()
+    expect(await screen.findByRole('button', { name: /скачать мои данные|экспорт/i })).toBeInTheDocument()
+  })
+
+  it('clicking the export button calls exportAccountData with the access token', async () => {
+    const { user } = await renderLoggedIn()
+    mockExportAccountData.mockResolvedValue({
+      exportedAt: '2026-08-06T00:00:00.000Z',
+      scope: 'schlussel-account',
+      profile: PROFILE,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      sessions: [],
+      connectedAccounts: [],
+    })
+
+    const button = await screen.findByRole('button', { name: /скачать мои данные|экспорт/i })
+    await user.click(button)
+
+    await waitFor(() => expect(mockExportAccountData).toHaveBeenCalledWith('token-abc'))
+  })
+
+  it('nearby text clarifies the export is scoped to this service only, not the whole platform', async () => {
+    await renderLoggedIn()
+    await screen.findByRole('button', { name: /скачать мои данные|экспорт/i })
+    const text = document.body.textContent ?? ''
+    expect(text).toMatch(/schlussel|аккаунт|этого сервиса|только этот/i)
+  })
+})
+
+describe('AccountPage — session timeout select', () => {
+  it('shows a labeled select for automatic-logout duration', async () => {
+    mockListSessions.mockResolvedValue([])
+    await renderLoggedIn()
+    expect(await screen.findByLabelText(/автоматический выход/i)).toBeInTheDocument()
+  })
+
+  it('changing the timeout select calls updateProfile with the access token and a numeric sessionTimeoutMinutes', async () => {
+    mockListSessions.mockResolvedValue([])
+    const { user } = await renderLoggedIn()
+    mockUpdateProfile.mockResolvedValue({ ...PROFILE, sessionTimeoutMinutes: 60 })
+
+    const select = await screen.findByLabelText(/автоматический выход/i) as HTMLSelectElement
+    const options = within(select).getAllByRole('option') as HTMLOptionElement[]
+    // Pick a non-default option (one with a non-empty, numeric value) for a
+    // clean positive assertion.
+    const target = options.find((o) => o.value !== '' && !Number.isNaN(Number(o.value)))
+    expect(target).toBeTruthy()
+
+    await user.selectOptions(select, target!.value)
+
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalled())
+    expect(mockUpdateProfile).toHaveBeenCalledWith(
+      'token-abc',
+      expect.objectContaining({ sessionTimeoutMinutes: Number(target!.value) }),
+    )
   })
 })

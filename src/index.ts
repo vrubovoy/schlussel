@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { logger } from 'hono/logger'
+import { bodyLimit } from 'hono/body-limit'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { initKeys, getJwks } from './utils/keys.js'
@@ -25,6 +26,13 @@ const app = new Hono()
 
 app.use('*', logger())
 app.use('*', corsMiddleware)
+// Comfortably covers a PUT /auth/avatar body (MAX_AVATAR_BYTES raw image,
+// base64-encoded plus JSON wrapping - see routes/auth.ts) with headroom to
+// spare; every other request body on this API is tiny by comparison.
+app.use('*', bodyLimit({
+  maxSize: 1 * 1024 * 1024,
+  onError: (c) => c.json({ error: 'Request body too large' }, 413),
+}))
 
 app.get('/.well-known/jwks.json', (c) => c.json(getJwks()))
 app.get('/health', (c) => c.json({ status: 'ok', service: 'Schlüssel' }))

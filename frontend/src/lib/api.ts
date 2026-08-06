@@ -5,6 +5,52 @@ export interface AuthUser {
   role: 'admin' | 'user'
 }
 
+export type DateFormat = 'dmy' | 'mdy' | 'ymd'
+export type WeekStart = 'monday' | 'sunday'
+export type Language = 'ru' | 'en'
+
+export interface Profile extends AuthUser {
+  avatarDataUrl: string | null
+  timezone: string | null
+  dateFormat: DateFormat | null
+  weekStart: WeekStart | null
+  language: Language | null
+  notifyInApp: boolean
+  notifyBrowserPush: boolean
+  notifyTelegram: boolean
+  sessionTimeoutMinutes: number | null
+}
+
+// All optional, `null` explicitly clears a field back to "unset" (the
+// frontend's own display default takes over) - an absent key leaves it
+// untouched. Mirrors PATCH /auth/profile's own body shape exactly.
+export interface ProfileUpdate {
+  timezone?: string | null
+  dateFormat?: DateFormat | null
+  weekStart?: WeekStart | null
+  language?: Language | null
+  notifyInApp?: boolean
+  notifyBrowserPush?: boolean
+  notifyTelegram?: boolean
+  sessionTimeoutMinutes?: number | null
+}
+
+export interface ConnectedAccount {
+  id: string
+  provider: 'telegram'
+  externalUsername: string | null
+  connectedAt: string
+}
+
+export interface AccountExport {
+  exportedAt: string
+  scope: string
+  profile: Profile
+  createdAt: string
+  sessions: { userAgent: string | null; ipAddress: string | null; createdAt: string; expiresAt: string }[]
+  connectedAccounts: { provider: string; externalUsername: string | null; connectedAt: string }[]
+}
+
 interface LoginResponse {
   code: string
 }
@@ -137,6 +183,34 @@ export function deleteAccount(accessToken: string, password: string): Promise<{ 
 
 export function updateName(accessToken: string, name: string): Promise<AuthUser> {
   return authed<AuthUser>('PATCH', '/name', accessToken, { name })
+}
+
+export function fetchProfile(accessToken: string): Promise<Profile> {
+  return authed<Profile>('GET', '/profile', accessToken)
+}
+
+export function updateProfile(accessToken: string, data: ProfileUpdate): Promise<Profile> {
+  return authed<Profile>('PATCH', '/profile', accessToken, data)
+}
+
+export function uploadAvatar(accessToken: string, avatarDataUrl: string): Promise<Profile> {
+  return authed<Profile>('PUT', '/avatar', accessToken, { avatarDataUrl })
+}
+
+export function deleteAvatar(accessToken: string): Promise<Profile> {
+  return authed<Profile>('DELETE', '/avatar', accessToken)
+}
+
+export function listConnectedAccounts(accessToken: string): Promise<ConnectedAccount[]> {
+  return authed<ConnectedAccount[]>('GET', '/connected-accounts', accessToken)
+}
+
+export function disconnectAccount(accessToken: string, id: string): Promise<{ ok: true }> {
+  return authed('DELETE', `/connected-accounts/${id}`, accessToken)
+}
+
+export function exportAccountData(accessToken: string): Promise<AccountExport> {
+  return authed<AccountExport>('GET', '/export', accessToken)
 }
 
 export function listSessions(accessToken: string): Promise<Session[]> {

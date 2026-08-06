@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { eq, lt, and, isNull, gt } from 'drizzle-orm'
 import { createId } from '@paralleldrive/cuid2'
 import { db } from '../db/index.js'
-import { users, refreshTokens, authCodes, invites, type User } from '../db/schema.js'
+import { users, refreshTokens, authCodes, invites, connectedAccounts, type User } from '../db/schema.js'
 import { hashPassword, verifyPassword } from '../utils/password.js'
 import { signAccessToken, signRefreshToken, verifyToken } from '../utils/jwt.js'
 import { isLoginRateLimited, recordLoginFailure, recordLoginSuccess } from '../utils/rateLimit.js'
@@ -68,6 +68,43 @@ export const nameSchema = z.object({
   name: z.string().min(1).max(100),
 })
 
+// Raw image bytes, not the base64 string's own length (~33% longer) - the
+// cap that actually matters to a human is "how big is the picture".
+export const MAX_AVATAR_BYTES = 400 * 1024
+
+const DATA_URL_PATTERN = /^data:image\/(png|jpeg|jpg|webp|gif);base64,([A-Za-z0-9+/]+=*)$/
+
+export const avatarSchema = z.object({
+  avatarDataUrl: z.string().refine((value) => {
+    const match = DATA_URL_PATTERN.exec(value)
+    if (!match) return false
+    const base64 = match[2]!
+    // Exact byte count without actually decoding - each base64 char is
+    // 6 bits, minus 1 byte per trailing '=' padding char.
+    const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0
+    const bytes = (base64.length * 3) / 4 - padding
+    return bytes <= MAX_AVATAR_BYTES
+  }, { message: `Avatar must be a PNG/JPEG/WebP/GIF data URL under ${MAX_AVATAR_BYTES} bytes` }),
+})
+
+// All optional - PATCH /profile only ever touches whichever of these the
+// caller actually sent, exactly like PATCH /name and the notes/tags
+// pattern elsewhere on this platform. Explicit `null` clears a field
+// back to "unset" (the frontend's own display default takes over); an
+// absent key leaves it untouched.
+export const profileUpdateSchema = z.object({
+  timezone: z.string().max(100).nullable().optional(),
+  dateFormat: z.enum(['dmy', 'mdy', 'ymd']).nullable().optional(),
+  weekStart: z.enum(['monday', 'sunday']).nullable().optional(),
+  language: z.enum(['ru', 'en']).nullable().optional(),
+  notifyInApp: z.boolean().optional(),
+  notifyBrowserPush: z.boolean().optional(),
+  notifyTelegram: z.boolean().optional(),
+  // 5 minutes to 30 days - below that isn't a usable session, above that
+  // is just REFRESH_TOKEN_MAX_AGE (the platform default) with extra steps.
+  sessionTimeoutMinutes: z.number().int().min(5).max(43200).nullable().optional(),
+})
+
 // Optional body for POST /refresh - lets schlussel's own login page check
 // for an existing session before ever showing the credentials form (see
 // the /refresh handler below). Every existing caller sends no body at
@@ -109,16 +146,22 @@ function requestMeta(c: { req: { header: (name: string) => string | undefined } 
 
 // Creates a new refresh token, stores it, and sets it as the httpOnly
 // cookie - the session-establishing side effect shared by every path
-// below that authenticates a user.
-async function establishSession(c: RequestResponseContext, userId: string, meta: RequestMeta): Promise<void> {
-  const refreshToken = await signRefreshToken(userId)
+// below that authenticates a user. Takes the full user row (not just an
+// id) so a per-user sessionTimeoutMinutes preference (see profileUpdateSchema)
+// can shorten this session's lifetime - it can only ever shorten, never
+// extend past REFRESH_TOKEN_MAX_AGE, which stays the platform-wide ceiling.
+async function establishSession(c: RequestResponseContext, user: User, meta: RequestMeta): Promise<void> {
+  const refreshToken = await signRefreshToken(user.id)
+  const maxAgeSeconds = user.sessionTimeoutMinutes != null
+    ? Math.min(user.sessionTimeoutMinutes * 60, REFRESH_TOKEN_MAX_AGE)
+    : REFRESH_TOKEN_MAX_AGE
   await db.insert(refreshTokens).values({
     id: createId(),
-    userId,
+    userId: user.id,
     tokenHash: hashToken(refreshToken),
     userAgent: meta.userAgent,
     ipAddress: meta.ipAddress,
-    expiresAt: new Date(Date.now() + REFRESH_TOKEN_MAX_AGE * 1000),
+    expiresAt: new Date(Date.now() + maxAgeSeconds * 1000),
     createdAt: new Date(),
   })
   setCookieHeader(c, refreshToken)
@@ -136,7 +179,7 @@ async function issueSession(c: RequestResponseContext, user: User, trusted: bool
     name: user.name,
     role: user.role,
   })
-  if (trusted) await establishSession(c, user.id, requestMeta(c))
+  if (trusted) await establishSession(c, user, requestMeta(c))
 
   return {
     accessToken,
@@ -278,7 +321,7 @@ authRouter.post('/login', zValidator('json', loginSchema), async (c) => {
   // /refresh below skip the credentials form entirely the next time any
   // app redirects here.
   if (codeChallenge) {
-    if (isTrustedOrigin(c)) await establishSession(c, user.id, requestMeta(c))
+    if (isTrustedOrigin(c)) await establishSession(c, user, requestMeta(c))
     const code = await issueAuthCode(user.id, codeChallenge)
     return c.json({ code })
   }
@@ -369,7 +412,7 @@ authRouter.post('/refresh', async (c) => {
   const trusted = isTrustedOrigin(c)
 
   if (parsed.data.codeChallenge) {
-    if (trusted) await establishSession(c, user.id, requestMeta(c))
+    if (trusted) await establishSession(c, user, requestMeta(c))
     const code = await issueAuthCode(user.id, parsed.data.codeChallenge)
     return c.json({ code })
   }
@@ -380,7 +423,7 @@ authRouter.post('/refresh', async (c) => {
     name: user.name,
     role: user.role,
   })
-  if (trusted) await establishSession(c, user.id, requestMeta(c))
+  if (trusted) await establishSession(c, user, requestMeta(c))
 
   return c.json({ accessToken: newAccessToken })
 })
@@ -431,7 +474,7 @@ authRouter.patch('/password', zValidator('json', changePasswordSchema), async (c
   // account page that just made this request doesn't immediately find
   // itself logged out too.
   await db.delete(refreshTokens).where(eq(refreshTokens.userId, user.id))
-  await establishSession(c, user.id, requestMeta(c))
+  await establishSession(c, user, requestMeta(c))
 
   return c.json({ ok: true })
 })
@@ -483,6 +526,125 @@ authRouter.patch('/name', zValidator('json', nameSchema), async (c) => {
   await db.update(users).set({ name }).where(eq(users.id, user.id))
 
   return c.json({ id: user.id, email: user.email, name, role: user.role })
+})
+
+// The full extended profile - GET /me stays the small {id,email,name,role}
+// identity shape every consumer app's own auth flow already expects
+// unchanged; this is the account settings page's own richer read, kept
+// separate so growing it further never touches that shared shape.
+function profileJson(user: User) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    avatarDataUrl: user.avatarDataUrl,
+    timezone: user.timezone,
+    dateFormat: user.dateFormat,
+    weekStart: user.weekStart,
+    language: user.language,
+    notifyInApp: user.notifyInApp,
+    notifyBrowserPush: user.notifyBrowserPush,
+    notifyTelegram: user.notifyTelegram,
+    sessionTimeoutMinutes: user.sessionTimeoutMinutes,
+  }
+}
+
+authRouter.get('/profile', async (c) => {
+  const user = await authenticateBearer(c)
+  if (!user) return c.json({ error: 'Unauthorized' }, 401)
+  return c.json(profileJson(user))
+})
+
+authRouter.patch('/profile', zValidator('json', profileUpdateSchema), async (c) => {
+  const user = await authenticateBearer(c)
+  if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+  const data = c.req.valid('json')
+  await db.update(users).set(data).where(eq(users.id, user.id))
+
+  // Re-read rather than hand-merging user + data: every field in data is
+  // optional (only the keys the caller actually sent are present), so a
+  // merged object can't be typed as a real User without either an unsafe
+  // cast or re-deriving exactly what the database now holds anyway.
+  const updated = await db.select().from(users).where(eq(users.id, user.id)).get()
+  return c.json(profileJson(updated!))
+})
+
+authRouter.put('/avatar', zValidator('json', avatarSchema), async (c) => {
+  const user = await authenticateBearer(c)
+  if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+  const { avatarDataUrl } = c.req.valid('json')
+  await db.update(users).set({ avatarDataUrl }).where(eq(users.id, user.id))
+
+  return c.json(profileJson({ ...user, avatarDataUrl }))
+})
+
+authRouter.delete('/avatar', async (c) => {
+  const user = await authenticateBearer(c)
+  if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+  await db.update(users).set({ avatarDataUrl: null }).where(eq(users.id, user.id))
+
+  return c.json(profileJson({ ...user, avatarDataUrl: null }))
+})
+
+// Always empty in practice today - there's no Telegram bot (or any other
+// provider) to actually hand a connect flow off to yet, so nothing ever
+// inserts a row here. Exposed anyway so the account page reads real
+// (currently always-empty) data instead of a hardcoded placeholder, and
+// so the eventual connect flow only needs to add a POST here, not build
+// this list-and-disconnect half from scratch at the same time.
+authRouter.get('/connected-accounts', async (c) => {
+  const user = await authenticateBearer(c)
+  if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+  const accounts = await db.select().from(connectedAccounts).where(eq(connectedAccounts.userId, user.id))
+  return c.json(accounts.map((a) => ({
+    id: a.id, provider: a.provider, externalUsername: a.externalUsername, connectedAt: a.connectedAt,
+  })))
+})
+
+authRouter.delete('/connected-accounts/:id', async (c) => {
+  const user = await authenticateBearer(c)
+  if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+  const { id } = c.req.param()
+  const existing = await db.select().from(connectedAccounts)
+    .where(and(eq(connectedAccounts.id, id), eq(connectedAccounts.userId, user.id))).get()
+  if (!existing) return c.json({ error: 'Not found' }, 404)
+
+  await db.delete(connectedAccounts).where(eq(connectedAccounts.id, id))
+  return c.json({ ok: true })
+})
+
+// Exports this account's own Schlüssel data (profile fields + session
+// metadata) as a downloadable JSON blob. Scoped to what this service
+// owns, not a platform-wide export - kuvert/tafel/zettel each hold their
+// own data (transactions, tasks, notes) that this can't see or reach;
+// a real cross-service export needs those services' own cooperation and
+// is future work, not something to fake here by only covering the one
+// service that happens to already be reachable.
+authRouter.get('/export', async (c) => {
+  const user = await authenticateBearer(c)
+  if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+  const sessions = await db.select().from(refreshTokens).where(eq(refreshTokens.userId, user.id))
+  const accounts = await db.select().from(connectedAccounts).where(eq(connectedAccounts.userId, user.id))
+
+  return c.json({
+    exportedAt: new Date().toISOString(),
+    scope: 'schlussel-account-only',
+    profile: profileJson(user),
+    createdAt: user.createdAt,
+    sessions: sessions.map((s) => ({
+      userAgent: s.userAgent, ipAddress: s.ipAddress, createdAt: s.createdAt, expiresAt: s.expiresAt,
+    })),
+    connectedAccounts: accounts.map((a) => ({
+      provider: a.provider, externalUsername: a.externalUsername, connectedAt: a.connectedAt,
+    })),
+  })
 })
 
 // Active-sessions list for the account settings page. `current` is

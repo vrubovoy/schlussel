@@ -7,6 +7,53 @@ export const users = sqliteTable('users', {
   name: text('name').notNull(),
   role: text('role', { enum: ['admin', 'user'] }).notNull().default('user'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+
+  // ── Profile settings (all nullable = "not set, use the frontend's own
+  //    display default") ────────────────────────────────────────────
+  // A small (see MAX_AVATAR_BYTES in routes/auth.ts) image as a data URL,
+  // stored directly in this row rather than a real file store - the
+  // platform has no file-storage service yet (planned separately).
+  avatarDataUrl: text('avatar_data_url'),
+  // IANA zone name (e.g. "Europe/Moscow"). Null = the frontend falls back
+  // to the browser's own detected zone rather than a hardcoded one.
+  timezone: text('timezone'),
+  dateFormat: text('date_format', { enum: ['dmy', 'mdy', 'ymd'] }),
+  weekStart: text('week_start', { enum: ['monday', 'sunday'] }),
+  // Matches @zudar107/schloss-ui's own `Language` type - no UI reads this
+  // yet (every app is still Russian-only), it's stored now so the actual
+  // language-switcher rollout has a preference to read from already.
+  language: text('language', { enum: ['ru', 'en'] }),
+  // Notification channels - the notification service these gate doesn't
+  // exist yet either, so today these are just stored preferences with no
+  // running consumer. In-app defaults on since it costs nothing to show
+  // once that center exists; push/Telegram default off since both need
+  // an explicit opt-in step (a browser permission prompt, a Telegram
+  // account link) neither of which exists yet to have actually happened.
+  notifyInApp: integer('notify_in_app', { mode: 'boolean' }).notNull().default(true),
+  notifyBrowserPush: integer('notify_browser_push', { mode: 'boolean' }).notNull().default(false),
+  notifyTelegram: integer('notify_telegram', { mode: 'boolean' }).notNull().default(false),
+  // Caps how long a newly-issued refresh token lives (see establishSession
+  // in routes/auth.ts) - never extends it past the platform's own
+  // REFRESH_TOKEN_MAX_AGE, only ever shortens it. Null = use the platform
+  // default untouched.
+  sessionTimeoutMinutes: integer('session_timeout_minutes'),
+})
+
+// A provider a user has linked an external identity from - Telegram is
+// the only planned provider today (as the notification service's mobile
+// channel), so it's the only enum member so far; add more as real
+// integrations exist rather than speculatively. No connect flow exists
+// yet (there's no Telegram bot to hand off to), so this table has no
+// rows in practice until that's built - it exists now purely so the
+// account page has real data to read a real (currently always-empty)
+// list from, instead of a hardcoded placeholder.
+export const connectedAccounts = sqliteTable('connected_accounts', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  provider: text('provider', { enum: ['telegram'] }).notNull(),
+  externalId: text('external_id').notNull(),
+  externalUsername: text('external_username'),
+  connectedAt: integer('connected_at', { mode: 'timestamp' }).notNull(),
 })
 
 export const refreshTokens = sqliteTable('refresh_tokens', {
@@ -73,3 +120,4 @@ export type RefreshToken = typeof refreshTokens.$inferSelect
 export type AuthCode = typeof authCodes.$inferSelect
 export type Invite = typeof invites.$inferSelect
 export type ThemePreference = typeof themePreference.$inferSelect
+export type ConnectedAccount = typeof connectedAccounts.$inferSelect
