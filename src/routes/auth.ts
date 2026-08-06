@@ -178,6 +178,9 @@ async function issueSession(c: RequestResponseContext, user: User, trusted: bool
     email: user.email,
     name: user.name,
     role: user.role,
+    weekStart: user.weekStart,
+    dateFormat: user.dateFormat,
+    timezone: user.timezone,
   })
   if (trusted) await establishSession(c, user, requestMeta(c))
 
@@ -422,6 +425,9 @@ authRouter.post('/refresh', async (c) => {
     email: user.email,
     name: user.name,
     role: user.role,
+    weekStart: user.weekStart,
+    dateFormat: user.dateFormat,
+    timezone: user.timezone,
   })
   if (trusted) await establishSession(c, user, requestMeta(c))
 
