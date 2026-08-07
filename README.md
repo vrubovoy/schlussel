@@ -27,11 +27,19 @@ Every other service redirects an unauthenticated visitor's browser here to sign 
 Schlüssel hands back a short-lived RS256-signed JWT via an OAuth2 Authorization Code +
 PKCE exchange — the login page redirects with a one-time code, never the token itself,
 and the caller trades that code for the real access token in a POST response body, so
-the token never travels through a URL at all. A long-lived refresh token is set in an
-httpOnly cookie scoped to whichever frontend the visitor signed in from. Other services
-verify the JWT themselves against Schlüssel's public key, published at
+the token never travels through a URL at all. The hosted frontend keeps its long-lived
+refresh token in a host-only httpOnly cookie; on later redirects it can silently issue a
+fresh PKCE code without showing the credentials form again. Other services verify the
+JWT themselves against Schlüssel's public key, published at
 `/.well-known/jwks.json` — no shared secret, no synchronous call back to Schlüssel on
 every request.
+
+The JSON contract uses camelCase even though the browser redirect query uses OAuth-style
+snake_case: `POST /auth/login` accepts either just `email` + `password`, or those fields
+plus the complete `codeChallenge` + `codeChallengeMethod: "S256"` pair. The optional body
+on `POST /auth/refresh` follows the same all-or-none PKCE-pair rule; omit the body (or send
+`{}`) for an access token, or send both fields to receive a one-time code for
+`POST /auth/token`.
 
 This repo has two parts:
 
@@ -85,10 +93,10 @@ to be upfront about which parts are real today and which are groundwork:
 - **Session timeout** (`sessionTimeoutMinutes` on `PATCH /profile`) is also fully
   functional: it can shorten — never extend past the platform's own refresh-token
   lifetime — how long a newly-established session lasts.
-- **Regional preferences** (timezone, date format, week start, language) are stored by
-  `PATCH /profile` but have no reader yet anywhere on the platform — every app still
-  hardcodes `ru-RU` formatting. They exist so the eventual i18n/formatting rollout has a
-  preference to read from already.
+- **Regional preferences** are stored by `PATCH /profile`. Timezone, date format, and
+  week start are included in newly issued access tokens and used by Kuvert, Tafel, and
+  Zettel for their date/calendar formatting. Timezones must be valid IANA zone names.
+  Language is stored for the ongoing i18n rollout but is not consumed by the apps yet.
 - **Notification toggles** (in-app, browser push, Telegram) are likewise stored
   preferences with no notification service yet to gate anything on them.
 - **Connected accounts** (`GET /connected-accounts`, `DELETE /connected-accounts/:id`)
@@ -98,11 +106,23 @@ to be upfront about which parts are real today and which are groundwork:
   sessions) as JSON. It's scoped to what this service owns, not a platform-wide export —
   Kuvert/Tafel/Zettel each hold their own data and would need their own export.
 
+### Public API routes
+
+`GET /.well-known/jwks.json` publishes the RS256 verification keys and `GET /health`
+serves the container health check. `GET/PUT /theme` is also public and unauthenticated:
+it stores one install-wide `light`/`dark`/`oled`/`sepia` preference so separate-origin
+frontends can synchronize through `ThemeSync`. Writes use last-write-wins `updatedAt`
+timestamps; a stale write returns the current winning value, and a timestamp more than
+five minutes ahead of server time is rejected so one bad client clock cannot block later
+updates indefinitely. The hosted frontend proxies `/theme` to the API during local
+development and mounts `ThemeSync` itself, so its theme participates in the same sync.
+
 ## Local development
 
 ```sh
 pnpm install
 cp .env.example .env
+cp frontend/.env.example frontend/.env
 pnpm dev              # API on http://localhost:4000
 pnpm --filter frontend dev # login/register pages on http://localhost:4001
 ```
@@ -126,9 +146,10 @@ See `.env.example` for the API. The important ones:
 | `DATABASE_PATH` | SQLite file path |
 | `KEYS_DIR` | Where the RS256 signing keypair is generated/stored on first run |
 | `JWT_ISSUER` | Must match what every other service expects as the token issuer |
-| `ALLOWED_ORIGINS` | Comma-separated CORS allowlist |
+| `ALLOWED_ORIGINS` | Comma-separated CORS allowlist; include every frontend that calls the public `/theme` API directly |
 
-`frontend/` reads two build-time variables (see `frontend/Dockerfile`): `VITE_ALLOWED_RETURN_ORIGINS`,
+`frontend/` reads two build-time variables (see `frontend/.env.example` for local
+development and `frontend/Dockerfile` for Docker): `VITE_ALLOWED_RETURN_ORIGINS`,
 a comma-separated allowlist of origins the hosted login page (and `/account`'s own "back
 to app" link) is allowed to redirect back to (a `return_to` pointing anywhere outside
 this list is rejected instead of followed - the open-redirect guard), and

@@ -8,6 +8,7 @@ please keep changes focused and in scope with the rest of the Hof platform.
 ```sh
 pnpm install
 cp .env.example .env
+cp frontend/.env.example frontend/.env
 pnpm dev              # API on http://localhost:4000
 pnpm --filter frontend dev # login/register pages on http://localhost:4001
 ```
@@ -17,7 +18,7 @@ Docker alongside `schloss` and `kuvert`.
 
 ## Before opening a PR
 
-- Run `pnpm test` and `pnpm lint` (and the same under `pnpm --filter web`) — CI runs both
+- Run `pnpm test` and `pnpm lint` (and the same under `pnpm --filter frontend`) — CI runs both
   and will block merges that don't pass.
 - Add or update tests for any behavior change.
 - Keep commits focused; one logical change per PR is easier to review than several

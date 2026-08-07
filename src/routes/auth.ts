@@ -38,17 +38,20 @@ export const registerSchema = z.object({
   inviteCode: z.string().min(1).optional(),
 })
 
-export const loginSchema = z
-  .object({
-    email: z.string().email(),
-    password: z.string(),
-    codeChallenge: codeChallengeSchema.optional(),
-    codeChallengeMethod: z.literal('S256').optional(),
-  })
-  .refine(
-    (v) => (v.codeChallenge === undefined) === (v.codeChallengeMethod === undefined),
-    { message: 'codeChallenge and codeChallengeMethod must be given together' },
-  )
+const loginCredentialsSchema = z.object({
+  email: z.string().email(),
+  password: z.string(),
+})
+
+// Keep the PKCE pair as an explicit union so both runtime validation and
+// generated OpenAPI describe the same all-or-none contract.
+export const loginSchema = z.union([
+  loginCredentialsSchema.extend({
+    codeChallenge: codeChallengeSchema,
+    codeChallengeMethod: z.literal('S256'),
+  }),
+  loginCredentialsSchema.strict(),
+])
 
 export const tokenSchema = z.object({
   code: z.string(),
@@ -92,8 +95,17 @@ export const avatarSchema = z.object({
 // pattern elsewhere on this platform. Explicit `null` clears a field
 // back to "unset" (the frontend's own display default takes over); an
 // absent key leaves it untouched.
+function isIanaTimezone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value }).format()
+    return true
+  } catch {
+    return false
+  }
+}
+
 export const profileUpdateSchema = z.object({
-  timezone: z.string().max(100).nullable().optional(),
+  timezone: z.string().max(100).refine(isIanaTimezone, { message: 'Invalid IANA timezone' }).nullable().optional(),
   dateFormat: z.enum(['dmy', 'mdy', 'ymd']).nullable().optional(),
   weekStart: z.enum(['monday', 'sunday']).nullable().optional(),
   language: z.enum(['ru', 'en']).nullable().optional(),
@@ -108,16 +120,16 @@ export const profileUpdateSchema = z.object({
 // Optional body for POST /refresh - lets schlussel's own login page check
 // for an existing session before ever showing the credentials form (see
 // the /refresh handler below). Every existing caller sends no body at
-// all, so this must stay optional and not break that.
-const refreshSchema = z
-  .object({
-    codeChallenge: codeChallengeSchema.optional(),
-    codeChallengeMethod: z.literal('S256').optional(),
-  })
-  .refine(
-    (v) => (v.codeChallenge === undefined) === (v.codeChallengeMethod === undefined),
-    { message: 'codeChallenge and codeChallengeMethod must be given together' },
-  )
+// all, so this must stay optional and not break that. The explicit union
+// also preserves the all-or-none PKCE contract in generated OpenAPI;
+// refinements validate at runtime but zod-to-openapi cannot represent them.
+export const refreshSchema = z.union([
+  z.object({
+    codeChallenge: codeChallengeSchema,
+    codeChallengeMethod: z.literal('S256'),
+  }),
+  z.object({}).strict(),
+])
 
 interface RequestMeta {
   userAgent: string | null
@@ -299,7 +311,8 @@ authRouter.post('/register', zValidator('json', registerSchema), async (c) => {
 })
 
 authRouter.post('/login', zValidator('json', loginSchema), async (c) => {
-  const { email, password, codeChallenge } = c.req.valid('json')
+  const credentials = c.req.valid('json')
+  const { email, password } = credentials
 
   const rateLimitKey = requestMeta(c).ipAddress ?? 'unknown'
   if (isLoginRateLimited(rateLimitKey)) {
@@ -323,9 +336,9 @@ authRouter.post('/login', zValidator('json', loginSchema), async (c) => {
   // Domain attribute needed. That's what lets the silent-reauth branch of
   // /refresh below skip the credentials form entirely the next time any
   // app redirects here.
-  if (codeChallenge) {
+  if ('codeChallenge' in credentials) {
     if (isTrustedOrigin(c)) await establishSession(c, user, requestMeta(c))
-    const code = await issueAuthCode(user.id, codeChallenge)
+    const code = await issueAuthCode(user.id, credentials.codeChallenge)
     return c.json({ code })
   }
 
@@ -414,7 +427,7 @@ authRouter.post('/refresh', async (c) => {
   await db.delete(refreshTokens).where(eq(refreshTokens.tokenHash, tokenHash))
   const trusted = isTrustedOrigin(c)
 
-  if (parsed.data.codeChallenge) {
+  if ('codeChallenge' in parsed.data) {
     if (trusted) await establishSession(c, user, requestMeta(c))
     const code = await issueAuthCode(user.id, parsed.data.codeChallenge)
     return c.json({ code })

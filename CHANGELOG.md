@@ -101,12 +101,12 @@ fit best; add a new section if none fits.
 
 ## UI
 - New `/admin` page: user management (role, force-logout, delete),
-  invite creation/journal with a shareable `/register?invite=...` link,
+  invite creation/journal with a shareable `/register#invite=...` link,
   and a small platform-stats overview.
 - New `/docs` page: an admin-only Swagger UI for this service's own API,
   fed by the new spec endpoint.
 - `RegisterPage` gained an invite-code field (prefillable from
-  `?invite=`) and no longer bounces a bare invite link away before
+  `#invite=`) and no longer bounces a bare invite link away before
   showing the form - previously only an externally-supplied
   `return_to`/`code_challenge` pair counted as a legitimate reason to
   render it.
@@ -153,7 +153,7 @@ fit best; add a new section if none fits.
 - Bumped the vendored `schloss-ui` submodule pointer to pick up
   `ThemeToggle`'s dropdown-positioning fix (schloss-ui#59/#60) - routine
   sync, no behavior change reported for schlussel's own header.
-- Added `web/public/theme-sync.html`: a small static "hub" page for
+- Added `frontend/public/theme-sync.html`: a small static "hub" page for
   cross-origin theme-preference sync. schloss's and kuvert's frontends
   embed it in a hidden iframe (their own `localStorage` can't be read
   from another origin directly) and exchange `postMessage` with it to
@@ -169,7 +169,7 @@ fit best; add a new section if none fits.
   outrank a real pick made moments earlier on another origin
   (schloss-ui#64) - routine sync, the hub page itself doesn't have this
   bug (it never invents a timestamp of its own).
-- Removed `web/public/theme-sync.html` and replaced it with a real
+- Removed `frontend/public/theme-sync.html` and replaced it with a real
   `GET`/`PUT /theme` API: the hidden-iframe + `postMessage` design read/
   wrote the hub page's own `localStorage`, which Firefox's Total Cookie
   Protection (and Safari's ITP) partitions by whichever site embeds the
@@ -182,11 +182,25 @@ fit best; add a new section if none fits.
   origin to `ALLOWED_ORIGINS`'s default (it now calls this endpoint
   directly, cross-origin) - it was missing before, harmless while the
   iframe approach didn't need CORS at all.
+- Expanded `/account` with editable avatar and regional/notification
+  preferences, connected-account status, scoped JSON export, and session
+  lifetime controls, backed by the new profile/avatar/connected/export API
+  routes.
+- Added timezone, date-format, and week-start preferences to newly issued
+  access tokens so Kuvert, Tafel, and Zettel can consume the central profile
+  settings without synchronous calls back to Schlüssel. Language remains
+  stored for the ongoing i18n rollout.
+- Hardened platform synchronization inputs: profile timezones must resolve as
+  IANA zones, and `/theme` rejects timestamps more than five minutes ahead of
+  the server while allowing ordinary client clock skew.
+- Mounted the API-backed `ThemeSync` in Schlüssel's own frontend and proxied
+  `/theme` in its Vite dev server, so theme changes made on the auth/account
+  origin participate in the same timestamp reconciliation as consumer apps.
 
 ## Infrastructure
 - CI (tests + lint) on every push/PR.
 - Docker Compose networking on a shared `schloss-net`.
-- Migrated from nginx to Caddy in the web image.
+- Migrated from nginx to Caddy in the frontend image.
 - Docker images published to GHCR on merge to `main`.
 - Dependabot for both npm and GitHub Actions dependencies.
 - Dropped published host ports - reached only through the tor gateway now.
@@ -209,14 +223,14 @@ fit best; add a new section if none fits.
   current project's own deps, even with `--filter`) - so the API
   image needed GitHub Packages auth too, despite never using
   `@zudar107/schloss-ui` itself. Added the same BuildKit-secret
-  `.npmrc` auth already used in `web/Dockerfile`.
+  `.npmrc` auth already used in `frontend/Dockerfile`.
 - Bumped `schloss-ui` for `StatTile`'s row-misalignment fix (a long
   wrapped label no longer pushes its tile's value down relative to its
   row's other tiles) and `Badge`'s baseline-mismatch fix against plain
   text - both hit on `/admin`'s overview and invites journal while
   testing.
 - Pinned `better-sqlite3` back to `^12.11.1` after a routine Dependabot
-  bump to `13.0.1` broke both Docker images (root API and `web`, which
+  bump to `13.0.1` broke both Docker images (root API and `frontend`, which
   installs against the same shared lockfile) - v13 dropped prebuilt
   binaries entirely, so install always compiles from source via
   `node-gyp` now, on every platform, instead of just downloading a
@@ -241,10 +255,13 @@ fit best; add a new section if none fits.
   deliberately excludes admin-only functionality. Reachable without
   being logged in (unlike `/account`, `/admin`, `/docs`), since someone
   stuck at login/registration is exactly who needs it. Text skeleton
-  only for now, with screenshot slots at `web/public/guide/schlussel-*.png`
+  only for now, with screenshot slots at `frontend/public/guide/schlussel-*.png`
   for the user to fill in later.
 - Fixed the `/help` page's "Первые шаги" numbered list rendering with no
   visible `1./2./3.` markers - just unexplained indentation. Tailwind's
   preflight base styles reset `ol`/`ul` to `list-style: none`; the page's
   own inline style set the indent (`paddingLeft`) but never restored a
   `list-style-type`. Added `listStyleType: 'decimal'` explicitly.
+- Expanded the generated OpenAPI contract to cover every public and profile
+  route, the all-or-none PKCE pairs accepted by login and refresh, profile
+  propagation in newly issued tokens, and the theme timestamp limit.

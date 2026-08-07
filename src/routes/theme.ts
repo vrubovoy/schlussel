@@ -18,10 +18,16 @@ import { themePreference } from '../db/schema.js'
 // buckets, so nothing ever actually synced. A plain fetch response isn't
 // subject to that at all.
 const THEMES = ['light', 'dark', 'oled', 'sepia'] as const
+// Accommodate normal device/server clock drift without letting one bad
+// client timestamp block legitimate last-write-wins updates indefinitely.
+export const MAX_THEME_FUTURE_SKEW_MS = 5 * 60 * 1000
 
-const themeSchema = z.object({
+export const themeSchema = z.object({
   theme: z.enum(THEMES),
-  updatedAt: z.number().int().nonnegative(),
+  updatedAt: z.number().int().nonnegative().refine(
+    (value) => value <= Date.now() + MAX_THEME_FUTURE_SKEW_MS,
+    { message: 'updatedAt is too far in the future' },
+  ),
 })
 
 export const themeRouter = new Hono()

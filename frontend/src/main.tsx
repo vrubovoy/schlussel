@@ -7,19 +7,27 @@ import { AccountPage } from './features/account/AccountPage'
 import { AdminPage } from './features/admin/AdminPage'
 import { DocsPage } from './features/docs/DocsPage'
 import { HelpPage } from './features/help/HelpPage'
-import { applyTheme, getStoredTheme } from '@zudar107/schloss-ui'
+import { applyTheme, getStoredTheme, ThemeSync } from '@zudar107/schloss-ui'
 import './index.css'
 
 applyTheme(getStoredTheme())
 
 function Root() {
-  if (window.location.pathname === '/register') return <RegisterPage />
-  if (window.location.pathname === '/logout') return <LogoutPage />
-  if (window.location.pathname === '/account') return <AccountPage />
-  if (window.location.pathname === '/admin') return <AdminPage />
-  if (window.location.pathname === '/docs') return <DocsPage />
-  if (window.location.pathname === '/help') return <HelpPage />
-  return <LoginPage />
+  let page
+  if (window.location.pathname === '/register') page = <RegisterPage />
+  else if (window.location.pathname === '/logout') page = <LogoutPage />
+  else if (window.location.pathname === '/account') page = <AccountPage />
+  else if (window.location.pathname === '/admin') page = <AdminPage />
+  else if (window.location.pathname === '/docs') page = <DocsPage />
+  else if (window.location.pathname === '/help') page = <HelpPage />
+  else page = <LoginPage />
+
+  return (
+    <>
+      <ThemeSync apiOrigin={window.location.origin} />
+      {page}
+    </>
+  )
 }
 
 createRoot(document.getElementById('root')!).render(

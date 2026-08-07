@@ -24,6 +24,10 @@ export default defineConfig({
           })
         },
       },
+      '/theme': {
+        target: 'http://localhost:4000',
+        changeOrigin: true,
+      },
     },
   },
   define: {

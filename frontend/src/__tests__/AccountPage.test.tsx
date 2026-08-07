@@ -778,6 +778,19 @@ describe('AccountPage — avatar upload', () => {
     expect(fileInput).toBeTruthy()
   })
 
+  it('opens the avatar file picker when its accessible button is activated with the keyboard', async () => {
+    const { user, container } = await renderLoggedIn()
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement
+    const clickFileInput = vi.spyOn(fileInput, 'click')
+    const avatarButton = screen.getByRole('button', { name: /изменить фото/i })
+
+    avatarButton.focus()
+    expect(avatarButton).toHaveFocus()
+    await user.keyboard('{Enter}')
+
+    expect(clickFileInput).toHaveBeenCalledOnce()
+  })
+
   it('selecting an image file eventually calls uploadAvatar with the access token and a string payload', async () => {
     const { container } = await renderLoggedIn()
     mockUploadAvatar.mockResolvedValue({ ...PROFILE, avatarDataUrl: 'data:image/png;base64,xyz' })
@@ -814,6 +827,30 @@ describe('AccountPage — PreferencesCard', () => {
     expect(screen.getByLabelText(/формат даты/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/первый день недели/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/язык/i)).toBeInTheDocument()
+  })
+
+  it('includes UTC when the browser timezone list omits it', async () => {
+    const supportedValuesOf = vi.spyOn(Intl, 'supportedValuesOf').mockReturnValue(['Europe/Moscow'])
+    try {
+      await renderLoggedIn()
+      const select = await screen.findByLabelText(/часовой пояс/i)
+      const utcOptions = within(select).getAllByRole('option', { name: 'UTC' })
+      expect(utcOptions).toHaveLength(1)
+    } finally {
+      supportedValuesOf.mockRestore()
+    }
+  })
+
+  it('does not duplicate UTC when the browser timezone list includes it', async () => {
+    const supportedValuesOf = vi.spyOn(Intl, 'supportedValuesOf').mockReturnValue(['UTC', 'Europe/Moscow'])
+    try {
+      await renderLoggedIn()
+      const select = await screen.findByLabelText(/часовой пояс/i)
+      const utcOptions = within(select).getAllByRole('option', { name: 'UTC' })
+      expect(utcOptions).toHaveLength(1)
+    } finally {
+      supportedValuesOf.mockRestore()
+    }
   })
 
   it('changing the timezone select calls updateProfile with the access token and the new timezone', async () => {

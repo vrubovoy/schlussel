@@ -42,7 +42,7 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
       args:
-        VITE_ALLOWED_RETURN_ORIGINS: ${ALLOWED_RETURN_ORIGINS:-https://localhost,https://kuvert.localhost,https://tafel.localhost,https://zettel.localhost}
+        VITE_ALLOWED_RETURN_ORIGINS: ${ALLOWED_RETURN_ORIGINS:-https://localhost,https://auth.localhost,https://kuvert.localhost,https://tafel.localhost,https://zettel.localhost}
         VITE_DEFAULT_APP_URL: ${DEFAULT_APP_URL:-https://localhost}
     restart: unless-stopped
     networks:
