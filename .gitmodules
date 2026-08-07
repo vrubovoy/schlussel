@@ -1,3 +1,6 @@
 [submodule "schloss-ui"]
 	path = schloss-ui
 	url = https://github.com/zudaR107/schloss-ui.git
+[submodule "schloss-server-kit"]
+	path = schloss-server-kit
+	url = https://github.com/zudaR107/schloss-server-kit.git

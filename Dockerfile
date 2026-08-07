@@ -15,6 +15,7 @@ WORKDIR /app
 ENV CI=true
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY schloss-server-kit/package.json ./schloss-server-kit/
 COPY schloss-ui/package.json ./schloss-ui/
 
 # better-sqlite3's install script downloads a prebuilt binary and only
@@ -35,6 +36,7 @@ RUN apk add --no-cache python3 make g++
 RUN pnpm install --frozen-lockfile
 
 COPY tsconfig.json drizzle.config.ts ./
+COPY schloss-server-kit ./schloss-server-kit
 COPY src ./src
 RUN pnpm build
 
@@ -46,12 +48,14 @@ RUN corepack enable && corepack prepare pnpm@11.7.0 --activate
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY schloss-server-kit/package.json ./schloss-server-kit/
 COPY schloss-ui/package.json ./schloss-ui/
 # See the builder stage's comment above - same fallback-compile issue.
 RUN apk add --no-cache python3 make g++
 RUN pnpm install --frozen-lockfile --prod
 
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/schloss-server-kit/dist ./schloss-server-kit/dist
 COPY src/db/migrations ./dist/db/migrations
 
 RUN mkdir -p /data/keys

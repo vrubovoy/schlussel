@@ -11,9 +11,10 @@ self-hosted personal services:
 - [`kuvert`](https://github.com/zudaR107/kuvert) — envelope budgeting
 - [`tafel`](https://github.com/zudaR107/tafel) — task/project tracking
 - [`zettel`](https://github.com/zudaR107/zettel) — markdown note-taking
+- [`glocke`](https://github.com/zudaR107/glocke) — notification center
 - [`tor`](https://github.com/zudaR107/tor) — reverse-proxy gateway
 - [`schloss-ui`](https://github.com/zudaR107/schloss-ui) — shared frontend components
-- [`schloss-server-kit`](https://github.com/zudaR107/schloss-server-kit) — shared backend auth/CORS kit
+- [`schloss-server-kit`](https://github.com/zudaR107/schloss-server-kit) — shared backend auth/CORS/notification transport kit
 
 Schlüssel ("key" in German) is the authentication service for this suite of
 self-hosted personal services. It's a standalone identity provider: it owns
@@ -97,8 +98,9 @@ to be upfront about which parts are real today and which are groundwork:
   week start are included in newly issued access tokens and used by Kuvert, Tafel, and
   Zettel for their date/calendar formatting. Timezones must be valid IANA zone names.
   Language is stored for the ongoing i18n rollout but is not consumed by the apps yet.
-- **Notification toggles** (in-app, browser push, Telegram) are likewise stored
-  preferences with no notification service yet to gate anything on them.
+- **Notification toggles** are stored here. Glocke reads the in-app preference
+  through a separately HMAC-authenticated internal endpoint; browser push and
+  Telegram remain future channels.
 - **Connected accounts** (`GET /connected-accounts`, `DELETE /connected-accounts/:id`)
   is always empty in practice — Telegram is the only planned provider and there's no bot
   yet to hand a connect flow off to.
@@ -147,6 +149,24 @@ See `.env.example` for the API. The important ones:
 | `KEYS_DIR` | Where the RS256 signing keypair is generated/stored on first run |
 | `JWT_ISSUER` | Must match what every other service expects as the token issuer |
 | `ALLOWED_ORIGINS` | Comma-separated CORS allowlist; include every frontend that calls the public `/theme` API directly |
+| `GLOCKE_BASE_URL` | Internal Glocke backend URL (default `http://glocke-backend:3004`) |
+| `SCHLUSSEL_TO_GLOCKE_HMAC_KEY_ID` / `SCHLUSSEL_TO_GLOCKE_HMAC_SECRET` | Required dedicated credential used to sign outbox event delivery; secret must be at least 32 bytes |
+| `GLOCKE_TO_SCHLUSSEL_HMAC_KEY_ID` / `GLOCKE_TO_SCHLUSSEL_HMAC_SECRET` | Separate credential accepted only from Glocke for recipient lookups |
+| `GLOCKE_SIGNATURE_MAX_SKEW_SECONDS` | Positive signature timestamp tolerance (default `300`) |
+| `GLOCKE_DISPATCH_INTERVAL_MS` / `GLOCKE_OUTBOX_LEASE_MS` / `GLOCKE_FETCH_TIMEOUT_MS` | Positive worker timings; fetch timeout must remain shorter than the lease |
+| `GLOCKE_WORKER_STOP_TIMEOUT_MS` | Bound on waiting for the active worker during shutdown (default `5000`) |
+| `GLOCKE_MAX_ATTEMPTS` / `GLOCKE_RETRY_BASE_DELAY_MS` / `GLOCKE_RETRY_MAX_DELAY_MS` | Positive durable retry limits and backoff bounds |
+
+Password changes commit a `schlussel.security.password_changed.v1` event in the
+same SQLite transaction as the password and replacement session. A lease-based
+worker later posts the shared v1 envelope with the exact
+`{ "recipientId": user.id }` payload to Glocke, so Glocke downtime never
+adds network work to or rolls back a successful request. Glocke resolves active
+recipient preferences through `GET /internal/v1/notification-recipients/:userId`;
+this service-to-service route is intentionally omitted from the public OpenAPI
+document. Startup rejects missing, short, or reused directional secrets, unsafe key IDs
+or Glocke URLs, and invalid timing relationships rather than running with a
+partially secure dispatcher.
 
 `frontend/` reads two build-time variables (see `frontend/.env.example` for local
 development and `frontend/Dockerfile` for Docker): `VITE_ALLOWED_RETURN_ORIGINS`,

@@ -9,15 +9,19 @@ import { corsMiddleware } from './middleware/cors.js'
 import { authRouter } from './routes/auth.js'
 import { adminRouter, authenticateAdmin } from './routes/admin.js'
 import { themeRouter } from './routes/theme.js'
+import { createInternalRouter } from './routes/internal.js'
 import { openApiDocument } from './openapi.js'
 import { db } from './db/index.js'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
+import { startOutboxDispatcher } from './services/outboxDispatcher.js'
+import { loadNotificationConfig } from './config.js'
 
 // Resolved relative to this file so it works both in dev (src/index.ts,
 // migrations at src/db/migrations) and in the compiled build
 // (dist/index.js, migrations at dist/db/migrations) without a hardcoded
 // path that only matches one of the two.
 const __dirname = dirname(fileURLToPath(import.meta.url))
+const notificationConfig = loadNotificationConfig()
 
 await initKeys()
 migrate(db, { migrationsFolder: join(__dirname, 'db/migrations') })
@@ -40,6 +44,11 @@ app.get('/health', (c) => c.json({ status: 'ok', service: 'Schlüssel' }))
 app.route('/auth', authRouter)
 app.route('/auth', adminRouter)
 app.route('/theme', themeRouter)
+app.route('/internal', createInternalRouter({
+  keyId: notificationConfig.inboundKeyId,
+  secret: notificationConfig.inboundSecret,
+  maxSkewSeconds: notificationConfig.signatureMaxSkewSeconds,
+}))
 
 // Lives here rather than inside admin.ts/adminRouter, since openapi.ts
 // imports admin.ts's own schemas to describe them - mounting it in
@@ -52,6 +61,31 @@ app.get('/auth/openapi.json', async (c) => {
 
 const PORT = Number(process.env['PORT'] ?? 4000)
 
-serve({ fetch: app.fetch, port: PORT }, () => {
+const server = serve({ fetch: app.fetch, port: PORT }, () => {
   console.log(`[Schlüssel] Running on http://localhost:${PORT}`)
 })
+
+const dispatcher = startOutboxDispatcher({
+  glockeBaseUrl: notificationConfig.glockeBaseUrl,
+  keyId: notificationConfig.outboundKeyId,
+  secret: notificationConfig.outboundSecret,
+  intervalMs: notificationConfig.dispatchIntervalMs,
+  leaseMs: notificationConfig.leaseMs,
+  fetchTimeoutMs: notificationConfig.fetchTimeoutMs,
+  stopTimeoutMs: notificationConfig.workerStopTimeoutMs,
+  maxAttempts: notificationConfig.maxAttempts,
+  baseDelayMs: notificationConfig.baseDelayMs,
+  maxDelayMs: notificationConfig.maxDelayMs,
+  onError: () => console.error('[Schlüssel] Notification outbox dispatch failed'),
+})
+
+let shutdownStarted = false
+async function shutdown() {
+  if (shutdownStarted) return
+  shutdownStarted = true
+  server.close()
+  await dispatcher.stop()
+}
+
+process.once('SIGINT', () => { void shutdown() })
+process.once('SIGTERM', () => { void shutdown() })

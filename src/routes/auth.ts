@@ -4,11 +4,19 @@ import { z } from 'zod'
 import { eq, lt, and, isNull, gt } from 'drizzle-orm'
 import { createId } from '@paralleldrive/cuid2'
 import { db } from '../db/index.js'
-import { users, refreshTokens, authCodes, invites, connectedAccounts, type User } from '../db/schema.js'
+import {
+  users,
+  refreshTokens,
+  authCodes,
+  invites,
+  connectedAccounts,
+  notificationOutbox,
+  type User,
+} from '../db/schema.js'
 import { hashPassword, verifyPassword } from '../utils/password.js'
 import { signAccessToken, signRefreshToken, verifyToken } from '../utils/jwt.js'
 import { isLoginRateLimited, recordLoginFailure, recordLoginSuccess } from '../utils/rateLimit.js'
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 
 const REFRESH_TOKEN_MAX_AGE = 60 * 60 * 24 * 7 // 7 days in seconds
 const COOKIE_NAME = 'schloss_refresh'
@@ -485,15 +493,41 @@ authRouter.patch('/password', zValidator('json', changePasswordSchema), async (c
     return c.json({ error: 'Invalid current password' }, 401)
   }
 
-  await db.update(users).set({ passwordHash: await hashPassword(newPassword) }).where(eq(users.id, user.id))
+  const passwordHash = await hashPassword(newPassword)
+  const refreshToken = await signRefreshToken(user.id)
+  const maxAgeSeconds = user.sessionTimeoutMinutes != null
+    ? Math.min(user.sessionTimeoutMinutes * 60, REFRESH_TOKEN_MAX_AGE)
+    : REFRESH_TOKEN_MAX_AGE
+  const now = Date.now()
+  const meta = requestMeta(c)
+  const eventId = randomUUID()
 
-  // A changed password invalidates every other session on every service -
-  // standard practice for "someone else might have had this password".
-  // Re-establish only this browser's own session right after, so the
-  // account page that just made this request doesn't immediately find
-  // itself logged out too.
-  await db.delete(refreshTokens).where(eq(refreshTokens.userId, user.id))
-  await establishSession(c, user, requestMeta(c))
+  // No network work belongs in this transaction. Glocke delivery is handled
+  // later by the outbox dispatcher, while all local password/session effects
+  // and the event commit (or roll back) as one SQLite unit.
+  db.transaction((tx) => {
+    tx.update(users).set({ passwordHash }).where(eq(users.id, user.id)).run()
+    tx.delete(refreshTokens).where(eq(refreshTokens.userId, user.id)).run()
+    tx.insert(refreshTokens).values({
+      id: createId(),
+      userId: user.id,
+      tokenHash: hashToken(refreshToken),
+      userAgent: meta.userAgent,
+      ipAddress: meta.ipAddress,
+      expiresAt: new Date(now + maxAgeSeconds * 1000),
+      createdAt: new Date(now),
+    }).run()
+    tx.insert(notificationOutbox).values({
+      id: eventId,
+      eventType: 'schlussel.security.password_changed.v1',
+      userId: user.id,
+      payload: JSON.stringify({ recipientId: user.id }),
+      correlationId: eventId,
+      createdAt: now,
+      nextAttemptAt: now,
+    }).run()
+  })
+  setCookieHeader(c, refreshToken)
 
   return c.json({ ok: true })
 })

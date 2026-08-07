@@ -15,6 +15,7 @@ ENV CI=true
 
 COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
 COPY frontend/package.json ./frontend/
+COPY schloss-server-kit/package.json ./schloss-server-kit/
 COPY schloss-ui/package.json ./schloss-ui/
 
 # --filter frontend doesn't spare this image from better-sqlite3 (the
@@ -43,7 +44,7 @@ RUN pnpm --filter @zudar107/schloss-ui build
 # Vite bakes import.meta.env.VITE_* into the bundle at build time, so this
 # must be declared as an ARG to actually receive the value passed via
 # docker-compose's build.args.
-ARG VITE_ALLOWED_RETURN_ORIGINS=https://localhost,https://auth.localhost,https://kuvert.localhost,https://tafel.localhost,https://zettel.localhost
+ARG VITE_ALLOWED_RETURN_ORIGINS=https://localhost,https://auth.localhost,https://kuvert.localhost,https://tafel.localhost,https://zettel.localhost,https://glocke.localhost
 ENV VITE_ALLOWED_RETURN_ORIGINS=$VITE_ALLOWED_RETURN_ORIGINS
 ARG VITE_DEFAULT_APP_URL=https://localhost
 ENV VITE_DEFAULT_APP_URL=$VITE_DEFAULT_APP_URL

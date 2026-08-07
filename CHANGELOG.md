@@ -4,6 +4,14 @@ Brief log of notable changes, grouped by theme — not a full commit history
 (see `git log` for that). New entries get appended under the section they
 fit best; add a new section if none fits.
 
+## Notifications
+- Added a transactional password-change outbox and lease-based Glocke
+  dispatcher using the shared v1 envelope, canonical HMAC signing, response
+  classification, `Retry-After`, and backoff helpers from `schloss-server-kit`.
+- Added the separately authenticated internal Glocke recipient-preference API;
+  it returns only the active user ID, in-app preference, language, and timezone
+  and is intentionally excluded from the public OpenAPI document.
+
 ## Auth
 - Hosted login/register web UI, JWKS-based token verification, fragment-based
   token handoff to other services via `return_to`.
