@@ -240,6 +240,26 @@ describe('PATCH /auth/profile', () => {
     }
   })
 
+  it.each(['UTC', 'Asia/Kathmandu'])('accepts and round-trips the valid IANA timezone %s', async (timezone) => {
+    const { accessToken } = await bootstrapUser()
+    const res = await patch('/auth/profile', { timezone }, authHeader(accessToken))
+
+    expect(res.status).toBe(200)
+    expect((await res.json() as Record<string, unknown>)['timezone']).toBe(timezone)
+  })
+
+  it.each(['Europe/Definitely_Not_A_City', 'UTC+03:00'])(
+    'rejects the non-IANA timezone %s',
+    async (timezone) => {
+      const { accessToken } = await bootstrapUser()
+      const res = await patch('/auth/profile', { timezone }, authHeader(accessToken))
+
+      expect(res.status).toBe(400)
+      const profileRes = await get('/auth/profile', authHeader(accessToken))
+      expect((await profileRes.json() as Record<string, unknown>)['timezone']).toBeNull()
+    },
+  )
+
   it('partial-update semantics: an omitted field is left untouched, and an explicit null clears it', async () => {
     const { accessToken } = await bootstrapUser()
 

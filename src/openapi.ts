@@ -9,13 +9,16 @@ import {
   nameSchema,
   profileUpdateSchema,
   avatarSchema,
+  refreshSchema,
 } from './routes/auth.js'
 import { createInviteSchema, roleSchema, adminDeleteSchema } from './routes/admin.js'
+import { themeSchema } from './routes/theme.js'
 
 // Purely additive/descriptive: this file only describes the API surface
-// already implemented in routes/auth.ts and routes/admin.ts by reusing
-// their real Zod schemas. It has zero effect on runtime request
-// validation - deleting it wouldn't change any endpoint's behavior.
+// already implemented by the auth, admin, theme, health, and JWKS routes,
+// reusing their real request schemas where applicable. It has zero effect
+// on runtime request validation - deleting it wouldn't change any
+// endpoint's behavior.
 
 const registry = new OpenAPIRegistry()
 
@@ -26,6 +29,7 @@ registry.registerComponent('securitySchemes', 'bearerAuth', {
 })
 
 const errorSchema = z.object({ error: z.string() })
+const okSchema = z.object({ ok: z.literal(true) })
 
 const userSchema = z.object({
   id: z.string(),
@@ -33,6 +37,17 @@ const userSchema = z.object({
   name: z.string(),
   role: z.enum(['admin', 'user']),
 })
+
+const accessTokenSchema = z.string().describe(
+  'Short-lived RS256 JWT. In addition to identity claims, its payload includes nullable timezone, dateFormat, and weekStart profile preferences.',
+)
+
+const accessTokenResponseSchema = z.object({
+  accessToken: accessTokenSchema,
+  user: userSchema,
+})
+
+const authCodeResponseSchema = z.object({ code: z.string() })
 
 const sessionSchema = z.object({
   id: z.string(),
@@ -87,6 +102,75 @@ const adminUserSchema = z.object({
   activeSessionCount: z.number(),
 })
 
+const themeResponseSchema = z.object({
+  theme: z.enum(['light', 'dark', 'oled', 'sepia']).nullable(),
+  updatedAt: z.number().int().nonnegative(),
+})
+
+// These routes live outside the global /auth server prefix, so each public
+// operation overrides it with the API root.
+registry.registerPath({
+  method: 'get',
+  path: '/theme',
+  summary: 'Get the install-wide theme preference',
+  servers: [{ url: '/' }],
+  responses: {
+    200: { description: 'OK', content: { 'application/json': { schema: themeResponseSchema } } },
+  },
+})
+
+registry.registerPath({
+  method: 'put',
+  path: '/theme',
+  summary: 'Update the install-wide theme preference',
+  description: 'Uses last-write-wins ordering by the client-supplied updatedAt timestamp, which may be at most five minutes ahead of server time. A stale or equal write is a successful no-op and returns the current winning preference.',
+  servers: [{ url: '/' }],
+  request: { body: { content: { 'application/json': { schema: themeSchema } } } },
+  responses: {
+    200: { description: 'Current theme preference', content: { 'application/json': { schema: themeResponseSchema } } },
+    400: { description: 'Invalid theme or update timestamp' },
+  },
+})
+
+registry.registerPath({
+  method: 'get',
+  path: '/health',
+  summary: 'Check service health',
+  servers: [{ url: '/' }],
+  responses: {
+    200: {
+      description: 'Healthy',
+      content: { 'application/json': { schema: z.object({ status: z.literal('ok'), service: z.literal('Schlüssel') }) } },
+    },
+  },
+})
+
+registry.registerPath({
+  method: 'get',
+  path: '/.well-known/jwks.json',
+  summary: 'Get the JWT verification keys',
+  servers: [{ url: '/' }],
+  responses: {
+    200: {
+      description: 'JSON Web Key Set',
+      content: {
+        'application/json': {
+          schema: z.object({
+            keys: z.array(z.object({
+              kty: z.string(),
+              n: z.string(),
+              e: z.string(),
+              use: z.literal('sig'),
+              alg: z.literal('RS256'),
+              kid: z.string(),
+            })),
+          }),
+        },
+      },
+    },
+  },
+})
+
 // ── Self-service auth ────────────────────────────────────────────────────
 
 registry.registerPath({
@@ -106,10 +190,16 @@ registry.registerPath({
   method: 'post',
   path: '/login',
   summary: 'Log in with email and password',
+  description: 'codeChallenge and codeChallengeMethod must either both be omitted or both be supplied. The only supported method is S256; the PKCE form returns a one-time code, while the credentials-only form returns an access token directly.',
   request: { body: { content: { 'application/json': { schema: loginSchema } } } },
   responses: {
-    200: { description: 'A short-lived auth code (PKCE) or an access token, depending on the request' },
+    200: {
+      description: 'A one-time PKCE code or an access token, depending on the request',
+      content: { 'application/json': { schema: z.union([authCodeResponseSchema, accessTokenResponseSchema]) } },
+    },
+    400: { description: 'Invalid request body' },
     401: { description: 'Invalid credentials', content: { 'application/json': { schema: errorSchema } } },
+    429: { description: 'Too many failed login attempts', content: { 'application/json': { schema: errorSchema } } },
   },
 })
 
@@ -117,9 +207,10 @@ registry.registerPath({
   method: 'post',
   path: '/token',
   summary: 'Exchange a PKCE code for an access token',
+  description: 'The returned access token contains the current timezone, dateFormat, and weekStart profile preferences as nullable JWT claims.',
   request: { body: { content: { 'application/json': { schema: tokenSchema } } } },
   responses: {
-    200: { description: 'OK' },
+    200: { description: 'Access token and current user', content: { 'application/json': { schema: accessTokenResponseSchema } } },
     400: { description: 'Invalid or expired code', content: { 'application/json': { schema: errorSchema } } },
   },
 })
@@ -127,9 +218,22 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/refresh',
-  summary: 'Rotate the refresh-token cookie for a new access token',
+  summary: 'Use the refresh-token cookie for a new access token or PKCE code',
+  description: 'The body may be omitted or empty to receive an access token. To receive a one-time code instead, codeChallenge and codeChallengeMethod must both be supplied and the method must be S256. Newly issued access tokens contain the current timezone, dateFormat, and weekStart profile preferences as nullable JWT claims. A trusted hosted-frontend request also rotates the refresh-token cookie.',
+  request: { body: { required: false, content: { 'application/json': { schema: refreshSchema } } } },
   responses: {
-    200: { description: 'OK' },
+    200: {
+      description: 'An access token, or a one-time PKCE code when a code challenge was supplied',
+      content: {
+        'application/json': {
+          schema: z.union([
+            z.object({ accessToken: accessTokenSchema }),
+            authCodeResponseSchema,
+          ]),
+        },
+      },
+    },
+    400: { description: 'Invalid PKCE request body', content: { 'application/json': { schema: errorSchema } } },
     401: { description: 'No, invalid, or expired refresh token', content: { 'application/json': { schema: errorSchema } } },
   },
 })
@@ -201,11 +305,12 @@ registry.registerPath({
   method: 'patch',
   path: '/profile',
   summary: 'Update the current user\'s profile settings',
-  description: 'Only the fields present in the request body are changed. Timezone/date format/week start/language are stored preferences with no reader yet anywhere on the platform; the notification toggles are stored preferences with no notification service yet to gate on them. sessionTimeoutMinutes is the one field that\'s fully functional today - it can only ever shorten, never extend past the platform default, how long a newly-established session lasts.',
+  description: 'Only the fields present in the request body are changed. Timezone must be a valid IANA zone; timezone/date format/week start are included in newly issued access tokens and consumed by platform apps. Language is stored for the ongoing i18n rollout. The notification toggles are stored preferences with no notification service yet to gate on them. sessionTimeoutMinutes can only shorten, never extend past the platform default, how long a newly-established session lasts.',
   security: [{ bearerAuth: [] }],
   request: { body: { content: { 'application/json': { schema: profileUpdateSchema } } } },
   responses: {
     200: { description: 'OK', content: { 'application/json': { schema: profileSchema } } },
+    400: { description: 'Invalid profile settings, including an unrecognized IANA timezone' },
     401: { description: 'Unauthorized', content: { 'application/json': { schema: errorSchema } } },
   },
 })
@@ -221,6 +326,7 @@ registry.registerPath({
     200: { description: 'OK', content: { 'application/json': { schema: profileSchema } } },
     401: { description: 'Unauthorized', content: { 'application/json': { schema: errorSchema } } },
     400: { description: 'Not a valid image data URL, or over the size cap', content: { 'application/json': { schema: errorSchema } } },
+    413: { description: 'Request body too large', content: { 'application/json': { schema: errorSchema } } },
   },
 })
 
@@ -241,7 +347,10 @@ registry.registerPath({
   summary: 'List the current user\'s connected external accounts',
   description: 'Always empty in practice today - Telegram is the only planned provider and there is no bot yet to hand a connect flow off to.',
   security: [{ bearerAuth: [] }],
-  responses: { 200: { description: 'OK', content: { 'application/json': { schema: z.array(connectedAccountSchema) } } } },
+  responses: {
+    200: { description: 'OK', content: { 'application/json': { schema: z.array(connectedAccountSchema) } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: errorSchema } } },
+  },
 })
 
 registry.registerPath({
@@ -251,7 +360,8 @@ registry.registerPath({
   security: [{ bearerAuth: [] }],
   request: { params: z.object({ id: z.string() }) },
   responses: {
-    200: { description: 'OK' },
+    200: { description: 'Disconnected', content: { 'application/json': { schema: okSchema } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: errorSchema } } },
     404: { description: 'Not found', content: { 'application/json': { schema: errorSchema } } },
   },
 })

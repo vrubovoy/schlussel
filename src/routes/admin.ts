@@ -59,7 +59,7 @@ adminRouter.post('/invites', zValidator('json', createInviteSchema), async (c) =
   await db.insert(invites).values(invite)
 
   // The only time the raw code is ever returned - the caller builds the
-  // shareable `/register?invite=...` link from it right away.
+  // shareable `/register#invite=...` link from it right away.
   return c.json({ id: invite.id, code, createdAt: invite.createdAt.toISOString(), expiresAt: invite.expiresAt.toISOString() }, 201)
 })
 

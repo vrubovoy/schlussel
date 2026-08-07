@@ -279,14 +279,17 @@ function ProfileCard({ user, accessToken, onNameChange }: ProfileCardProps) {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', marginBottom: '1.125rem' }}>
-        <div
+        <button
+          type="button"
+          aria-label="Изменить фото"
           onClick={() => fileInputRef.current?.click()}
+          disabled={avatarLoading}
           title="Изменить фото"
           style={{
             position: 'relative', width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
             background: avatarDataUrl ? undefined : 'var(--accent)', color: '#fff', fontWeight: 700, fontSize: '1.0625rem',
             display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-            overflow: 'hidden', opacity: avatarLoading ? 0.6 : 1,
+            overflow: 'hidden', opacity: avatarLoading ? 0.6 : 1, border: 'none', padding: 0,
           }}
         >
           {avatarDataUrl ? (
@@ -304,7 +307,7 @@ function ProfileCard({ user, accessToken, onNameChange }: ProfileCardProps) {
           >
             <Camera size={16} color="#fff" />
           </div>
-        </div>
+        </button>
         <input
           ref={fileInputRef}
           type="file"
@@ -478,7 +481,8 @@ const FALLBACK_TIMEZONES = [
 function listTimezones(): string[] {
   const supportedValuesOf = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf
   try {
-    return supportedValuesOf ? supportedValuesOf('timeZone') : FALLBACK_TIMEZONES
+    const timezones = supportedValuesOf ? supportedValuesOf('timeZone') : FALLBACK_TIMEZONES
+    return [...new Set(['UTC', ...timezones])]
   } catch {
     return FALLBACK_TIMEZONES
   }
@@ -712,12 +716,14 @@ function ConnectedAccountsCard({ accessToken }: { accessToken: string }) {
   )
 }
 
-// No real "who can see what" setting exists on this platform yet - it's
-// single-user, self-hosted, with no sharing/visibility features anywhere
-// (see the account settings page's own header comment on scope). Rather
-// than invent a toggle with nothing behind it, this states the actual,
-// true privacy posture as information - real content, just not
-// interactive, until an actual privacy-relevant setting exists to add.
+// No real "who can see what" TOGGLE exists on this platform yet - there's
+// no sharing feature to turn on or off. But the platform itself is
+// multi-user (one admin's server, used by family/friends, each with
+// their own account) - so "where is my data and who else on this
+// install can see it" is a real, meaningful question worth answering
+// plainly, not a single-user platform where it'd be moot. This states
+// the actual privacy posture as information rather than inventing a
+// toggle with nothing behind it.
 function PrivacyCard() {
   return (
     <div className="card" style={{ padding: '1.5rem' }}>
@@ -726,9 +732,10 @@ function PrivacyCard() {
         <h2 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>Приватность</h2>
       </div>
       <ul style={{ margin: 0, paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
-        <li>Платформа развёрнута на твоём собственном сервере — данные никуда, кроме него, не уходят.</li>
+        <li>Этой платформой, помимо тебя, могут пользоваться другие люди (например, семья или друзья) — у каждого свой аккаунт.</li>
+        <li>Твои счета, бюджет, задачи и заметки видны только тебе — другие пользователи этой платформы не имеют к ним доступа.</li>
+        <li>Все данные хранятся на одном сервере, которым управляет администратор платформы — сторонние облака и сервисы не используются.</li>
         <li>Нет стороннего аналитического или рекламного трекинга.</li>
-        <li>Платформа однопользовательская — делиться данными с другими аккаунтами сейчас негде и незачем.</li>
       </ul>
     </div>
   )

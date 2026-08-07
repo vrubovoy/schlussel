@@ -43,9 +43,9 @@ RUN pnpm --filter @zudar107/schloss-ui build
 # Vite bakes import.meta.env.VITE_* into the bundle at build time, so this
 # must be declared as an ARG to actually receive the value passed via
 # docker-compose's build.args.
-ARG VITE_ALLOWED_RETURN_ORIGINS=http://localhost:3000,http://localhost:5174
+ARG VITE_ALLOWED_RETURN_ORIGINS=https://localhost,https://auth.localhost,https://kuvert.localhost,https://tafel.localhost,https://zettel.localhost
 ENV VITE_ALLOWED_RETURN_ORIGINS=$VITE_ALLOWED_RETURN_ORIGINS
-ARG VITE_DEFAULT_APP_URL=http://localhost:3000
+ARG VITE_DEFAULT_APP_URL=https://localhost
 ENV VITE_DEFAULT_APP_URL=$VITE_DEFAULT_APP_URL
 
 COPY frontend ./frontend

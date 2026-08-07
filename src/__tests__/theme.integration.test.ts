@@ -198,6 +198,25 @@ describe('PUT /theme — validation errors (400)', () => {
     expect(res.status).toBe(400)
   })
 
+  it('rejects a timestamp one day in the future without persisting it', async () => {
+    const res = await put('/theme', {
+      theme: 'dark',
+      updatedAt: Date.now() + 24 * 60 * 60 * 1000,
+    })
+
+    expect(res.status).toBe(400)
+    const getRes = await get('/theme')
+    expect(await getRes.json()).toEqual({ theme: null, updatedAt: 0 })
+  })
+
+  it('accepts a timestamp slightly in the future for normal client clock skew', async () => {
+    const updatedAt = Date.now() + 60 * 1000
+    const res = await put('/theme', { theme: 'dark', updatedAt })
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ theme: 'dark', updatedAt })
+  })
+
   it('a rejected PUT does not change what a later GET reports', async () => {
     const good = await put('/theme', { theme: 'light', updatedAt: 7 })
     expect(good.status).toBe(200)
