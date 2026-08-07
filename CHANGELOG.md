@@ -12,6 +12,15 @@ fit best; add a new section if none fits.
   it returns only the active user ID, in-app preference, language, and timezone
   and is intentionally excluded from the public OpenAPI document.
 
+## Data export
+- Retained the synchronous Schlüssel-only `GET /export` JSON response and added
+  durable, owner-scoped `/export-jobs` for an asynchronous ZIP assembled from
+  Schlüssel, Kuvert, Tafel, Zettel, and Glocke through a fixed internal registry.
+- Added exact service-audience export delegations, per-service progress and
+  failed-service retry, partial archives with a checksum/timestamp manifest,
+  authenticated no-store downloads, expiring private artifacts, and per-user,
+  response-size, storage-quota, and free-space bounds.
+
 ## Auth
 - Hosted login/register web UI, JWKS-based token verification, fragment-based
   token handoff to other services via `return_to`.

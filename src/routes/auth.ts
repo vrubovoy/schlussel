@@ -14,9 +14,11 @@ import {
   type User,
 } from '../db/schema.js'
 import { hashPassword, verifyPassword } from '../utils/password.js'
-import { signAccessToken, signRefreshToken, verifyToken } from '../utils/jwt.js'
+import { isRefreshTokenPayload, signAccessToken, signRefreshToken, verifyAccessToken, verifyToken } from '../utils/jwt.js'
 import { isLoginRateLimited, recordLoginFailure, recordLoginSuccess } from '../utils/rateLimit.js'
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
+import { createSchlusselAccountExport, schlusselProfileJson as profileJson } from '../services/schlusselExport.js'
+import { createExportJobsRouter } from './exportJobs.js'
 
 const REFRESH_TOKEN_MAX_AGE = 60 * 60 * 24 * 7 // 7 days in seconds
 const COOKIE_NAME = 'schloss_refresh'
@@ -235,7 +237,7 @@ export async function authenticateBearer(c: { req: { header: (name: string) => s
   const authHeader = c.req.header('Authorization')
   if (!authHeader?.startsWith('Bearer ')) return null
   try {
-    const payload = await verifyToken(authHeader.slice(7))
+    const payload = await verifyAccessToken(authHeader.slice(7))
     const user = await db.select().from(users).where(eq(users.id, payload.sub)).get()
     return user ?? null
   } catch {
@@ -408,6 +410,12 @@ authRouter.post('/refresh', async (c) => {
     return c.json({ error: 'Refresh token expired or not found' }, 401)
   }
 
+  // Untyped refresh JWTs from before the token_use rollout are accepted only
+  // after both cryptographic verification and this exact stored-token lookup.
+  if (!isRefreshTokenPayload(payload)) {
+    return c.json({ error: 'Invalid refresh token' }, 401)
+  }
+
   const user = await db.select().from(users).where(eq(users.id, payload.sub)).get()
   if (!user) return c.json({ error: 'User not found' }, 401)
 
@@ -425,6 +433,11 @@ authRouter.post('/refresh', async (c) => {
   const parsed = refreshSchema.safeParse(body)
   if (!parsed.success) return c.json({ error: 'Invalid request' }, 400)
 
+  const trusted = isTrustedOrigin(c)
+  if (payload.tokenUse === null && !trusted) {
+    return c.json({ error: 'Legacy refresh token must be rotated at the trusted auth origin' }, 401)
+  }
+
   // Rotate refresh token - deleted unconditionally, re-issued only if
   // trusted (see isTrustedOrigin). An untrusted caller (a consumer app's
   // own proxied /auth/refresh, polling to keep its local state fresh)
@@ -433,7 +446,6 @@ authRouter.post('/refresh', async (c) => {
   // moment its now-deleted DB row is looked up again, instead of being
   // rotated forever.
   await db.delete(refreshTokens).where(eq(refreshTokens.tokenHash, tokenHash))
-  const trusted = isTrustedOrigin(c)
 
   if ('codeChallenge' in parsed.data) {
     if (trusted) await establishSession(c, user, requestMeta(c))
@@ -470,7 +482,7 @@ authRouter.get('/me', async (c) => {
   if (!authHeader?.startsWith('Bearer ')) return c.json({ error: 'Unauthorized' }, 401)
 
   try {
-    const payload = await verifyToken(authHeader.slice(7))
+    const payload = await verifyAccessToken(authHeader.slice(7))
     const user = await db.select().from(users).where(eq(users.id, payload.sub)).get()
     if (!user) return c.json({ error: 'User not found' }, 404)
     return c.json({ id: user.id, email: user.email, name: user.name, role: user.role })
@@ -585,24 +597,6 @@ authRouter.patch('/name', zValidator('json', nameSchema), async (c) => {
 // identity shape every consumer app's own auth flow already expects
 // unchanged; this is the account settings page's own richer read, kept
 // separate so growing it further never touches that shared shape.
-function profileJson(user: User) {
-  return {
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    role: user.role,
-    avatarDataUrl: user.avatarDataUrl,
-    timezone: user.timezone,
-    dateFormat: user.dateFormat,
-    weekStart: user.weekStart,
-    language: user.language,
-    notifyInApp: user.notifyInApp,
-    notifyBrowserPush: user.notifyBrowserPush,
-    notifyTelegram: user.notifyTelegram,
-    sessionTimeoutMinutes: user.sessionTimeoutMinutes,
-  }
-}
-
 authRouter.get('/profile', async (c) => {
   const user = await authenticateBearer(c)
   if (!user) return c.json({ error: 'Unauthorized' }, 401)
@@ -675,29 +669,16 @@ authRouter.delete('/connected-accounts/:id', async (c) => {
 // Exports this account's own Schlüssel data (profile fields + session
 // metadata) as a downloadable JSON blob. Scoped to what this service
 // owns, not a platform-wide export - kuvert/tafel/zettel each hold their
-// own data (transactions, tasks, notes) that this can't see or reach;
-// a real cross-service export needs those services' own cooperation and
-// is future work, not something to fake here by only covering the one
-// service that happens to already be reachable.
+// own data (transactions, tasks, notes) that this direct endpoint does not
+// include. The separate /export-jobs API coordinates those service snapshots.
 authRouter.get('/export', async (c) => {
+  c.header('Cache-Control', 'no-store, private')
+  c.header('Pragma', 'no-cache')
+  c.header('X-Content-Type-Options', 'nosniff')
   const user = await authenticateBearer(c)
   if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
-  const sessions = await db.select().from(refreshTokens).where(eq(refreshTokens.userId, user.id))
-  const accounts = await db.select().from(connectedAccounts).where(eq(connectedAccounts.userId, user.id))
-
-  return c.json({
-    exportedAt: new Date().toISOString(),
-    scope: 'schlussel-account-only',
-    profile: profileJson(user),
-    createdAt: user.createdAt,
-    sessions: sessions.map((s) => ({
-      userAgent: s.userAgent, ipAddress: s.ipAddress, createdAt: s.createdAt, expiresAt: s.expiresAt,
-    })),
-    connectedAccounts: accounts.map((a) => ({
-      provider: a.provider, externalUsername: a.externalUsername, connectedAt: a.connectedAt,
-    })),
-  })
+  return c.json(createSchlusselAccountExport(user))
 })
 
 // Active-sessions list for the account settings page. `current` is
@@ -760,6 +741,8 @@ authRouter.delete('/sessions', async (c) => {
 
   return c.json({ ok: true })
 })
+
+authRouter.route('/', createExportJobsRouter(authenticateBearer))
 
 // Helpers — cookie management without external deps
 function setCookieHeader(c: Parameters<typeof clearCookie>[0], token: string) {

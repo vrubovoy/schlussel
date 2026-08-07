@@ -14,7 +14,8 @@ import { openApiDocument } from './openapi.js'
 import { db } from './db/index.js'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 import { startOutboxDispatcher } from './services/outboxDispatcher.js'
-import { loadNotificationConfig } from './config.js'
+import { createExportServices, startExportWorker } from './services/exportWorker.js'
+import { loadExportConfig, loadNotificationConfig } from './config.js'
 
 // Resolved relative to this file so it works both in dev (src/index.ts,
 // migrations at src/db/migrations) and in the compiled build
@@ -22,6 +23,7 @@ import { loadNotificationConfig } from './config.js'
 // path that only matches one of the two.
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const notificationConfig = loadNotificationConfig()
+const exportConfig = loadExportConfig()
 
 await initKeys()
 migrate(db, { migrationsFolder: join(__dirname, 'db/migrations') })
@@ -79,12 +81,29 @@ const dispatcher = startOutboxDispatcher({
   onError: () => console.error('[Schlüssel] Notification outbox dispatch failed'),
 })
 
+const exportWorker = startExportWorker({
+  exportDir: exportConfig.exportDir,
+  services: createExportServices(exportConfig),
+  intervalMs: exportConfig.dispatchIntervalMs,
+  leaseMs: exportConfig.leaseMs,
+  requestTimeoutMs: exportConfig.requestTimeoutMs,
+  maxResponseBytes: exportConfig.maxResponseBytes,
+  maxAggregateBytes: exportConfig.maxAggregateBytes,
+  maxConcurrency: exportConfig.maxConcurrency,
+  artifactTtlMs: exportConfig.artifactTtlMs,
+  storageQuotaBytes: exportConfig.storageQuotaBytes,
+  minFreeBytes: exportConfig.minFreeBytes,
+  maxUserRetainedArtifactBytes: exportConfig.maxRetainedArtifactBytesPerUser,
+  stopTimeoutMs: exportConfig.workerStopTimeoutMs,
+  onError: () => console.error('[Schlüssel] Export worker failed'),
+})
+
 let shutdownStarted = false
 async function shutdown() {
   if (shutdownStarted) return
   shutdownStarted = true
   server.close()
-  await dispatcher.stop()
+  await Promise.all([dispatcher.stop(), exportWorker.stop()])
 }
 
 process.once('SIGINT', () => { void shutdown() })

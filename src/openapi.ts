@@ -81,6 +81,27 @@ const connectedAccountSchema = z.object({
   connectedAt: z.string(),
 })
 
+const exportJobServiceSchema = z.object({
+  service: z.enum(['schlussel', 'kuvert', 'tafel', 'zettel', 'glocke']),
+  status: z.enum(['pending', 'running', 'succeeded', 'failed', 'cancelled']),
+  attempts: z.number().int().nonnegative(),
+  bytes: z.number().int().nonnegative().nullable(),
+  sha256: z.string().nullable(),
+  error: z.string().nullable(),
+})
+
+const exportJobSchema = z.object({
+  id: z.string(),
+  status: z.enum(['queued', 'running', 'completed', 'partial', 'failed', 'cancelled', 'expired']),
+  createdAt: z.string(),
+  startedAt: z.string().nullable(),
+  completedAt: z.string().nullable(),
+  expiresAt: z.string().nullable(),
+  downloadUrl: z.string().nullable(),
+  error: z.string().nullable(),
+  services: z.array(exportJobServiceSchema),
+})
+
 const inviteSchema = z.object({
   id: z.string(),
   createdByName: z.string().nullable(),
@@ -370,7 +391,7 @@ registry.registerPath({
   method: 'get',
   path: '/export',
   summary: 'Export the current user\'s Schlüssel account data',
-  description: 'Scoped to what this service owns (profile fields, session metadata) - not a platform-wide export. Kuvert/Tafel/Zettel each hold their own data and would need their own export.',
+  description: 'Retained synchronous direct JSON export scoped to Schlüssel-owned profile, preference, session metadata, and connected-account data. It is separate from the asynchronous all-services ZIP created by /export-jobs. Passwords, password hashes, token values, signing keys, runtime configuration, internal worker/audit state, and other services\' data are excluded. The private response is sent with no-store and nosniff headers.',
   security: [{ bearerAuth: [] }],
   responses: {
     200: {
@@ -398,6 +419,78 @@ registry.registerPath({
       },
     },
     401: { description: 'Unauthorized', content: { 'application/json': { schema: errorSchema } } },
+  },
+})
+
+registry.registerPath({
+  method: 'post',
+  path: '/export-jobs',
+  summary: 'Create or return the current platform-wide export job',
+  description: 'Queues a durable owner-scoped ZIP export from the static Schlüssel/Kuvert/Tafel/Zettel/Glocke registry. At most one queued or running job exists per user. Each service takes its own local snapshot when called; this is not a distributed point-in-time transaction. Remote calls use non-expired RS256 delegations with the exact issuer, single service audience, token_use=export, data:export scope, and nonempty subject/job/token IDs. Export creation is subject to cooldown, retained-job, retained-byte, response-size, storage-quota, and free-space limits. Request bodies cannot provide service URLs or options.',
+  security: [{ bearerAuth: [] }],
+  request: { body: { required: false, content: { 'application/json': { schema: z.object({}).strict() } } } },
+  responses: {
+    202: { description: 'Queued job', content: { 'application/json': { schema: exportJobSchema } } },
+    429: { description: 'Per-user cooldown, retained-job cap, or retained-artifact cap reached', content: { 'application/json': { schema: errorSchema } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: errorSchema } } },
+  },
+})
+
+registry.registerPath({
+  method: 'get',
+  path: '/export-jobs/{id}',
+  summary: 'Get export job progress',
+  security: [{ bearerAuth: [] }],
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: { description: 'Owner-scoped job status', content: { 'application/json': { schema: exportJobSchema } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: errorSchema } } },
+    404: { description: 'Not found', content: { 'application/json': { schema: errorSchema } } },
+  },
+})
+
+registry.registerPath({
+  method: 'delete',
+  path: '/export-jobs/{id}',
+  summary: 'Cancel an export job',
+  security: [{ bearerAuth: [] }],
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    202: { description: 'Cancelled job', content: { 'application/json': { schema: exportJobSchema } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: errorSchema } } },
+    404: { description: 'Not found', content: { 'application/json': { schema: errorSchema } } },
+    409: { description: 'Job is already terminal', content: { 'application/json': { schema: errorSchema } } },
+  },
+})
+
+registry.registerPath({
+  method: 'post',
+  path: '/export-jobs/{id}/retry',
+  summary: 'Retry failed services in a partial or failed export',
+  description: 'Requeues only failed services. Existing successful service snapshots are retained, so retried files may represent a later point in time.',
+  security: [{ bearerAuth: [] }],
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    202: { description: 'Requeued job', content: { 'application/json': { schema: exportJobSchema } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: errorSchema } } },
+    404: { description: 'Not found', content: { 'application/json': { schema: errorSchema } } },
+    409: { description: 'Job cannot be retried', content: { 'application/json': { schema: errorSchema } } },
+  },
+})
+
+registry.registerPath({
+  method: 'get',
+  path: '/export-jobs/{id}/download',
+  summary: 'Download a completed or partial export ZIP',
+  description: 'Streams an authenticated owner-only private attachment with no-store and nosniff response headers. A partial archive is available when at least one service succeeded and at least one failed. manifest.json records statuses, attempts, files, byte counts, SHA-256 checksums, timestamps, and sanitized errors; service response bodies are never copied into error diagnostics. Artifacts expire after the configured TTL (24 hours by default) and are removed by cleanup. The ZIP contains sensitive personal data and excludes credentials, runtime configuration, logs, worker leases, internal audit/inbox records, and other users\' data.',
+  security: [{ bearerAuth: [] }],
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: { description: 'ZIP archive stream', content: { 'application/zip': { schema: z.string() } } },
+    401: { description: 'Unauthorized', content: { 'application/json': { schema: errorSchema } } },
+    404: { description: 'Not found', content: { 'application/json': { schema: errorSchema } } },
+    409: { description: 'Artifact is not available yet', content: { 'application/json': { schema: errorSchema } } },
+    410: { description: 'Artifact expired', content: { 'application/json': { schema: errorSchema } } },
   },
 })
 

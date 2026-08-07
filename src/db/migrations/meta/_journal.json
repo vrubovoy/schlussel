@@ -50,6 +50,20 @@
       "when": 1786090408150,
       "tag": "0006_past_songbird",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1786096746486,
+      "tag": "0007_mighty_victor_mancha",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1786099728617,
+      "tag": "0008_typical_lorna_dane",
+      "breakpoints": true
     }
   ]
 }

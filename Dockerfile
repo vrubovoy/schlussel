@@ -58,11 +58,12 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/schloss-server-kit/dist ./schloss-server-kit/dist
 COPY src/db/migrations ./dist/db/migrations
 
-RUN mkdir -p /data/keys
+RUN mkdir -p /data/keys /data/exports && chmod 700 /data/keys /data/exports
 
 ENV NODE_ENV=production \
     DATABASE_PATH=/data/schlussel.db \
     KEYS_DIR=/data/keys \
+    EXPORT_DIR=/data/exports \
     PORT=4000
 
 EXPOSE 4000

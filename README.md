@@ -104,9 +104,48 @@ to be upfront about which parts are real today and which are groundwork:
 - **Connected accounts** (`GET /connected-accounts`, `DELETE /connected-accounts/:id`)
   is always empty in practice — Telegram is the only planned provider and there's no bot
   yet to hand a connect flow off to.
-- **Data export** (`GET /export`) downloads this account's own Schlüssel data (profile,
-  sessions) as JSON. It's scoped to what this service owns, not a platform-wide export —
-  Kuvert/Tafel/Zettel each hold their own data and would need their own export.
+- **Data export** keeps `GET /export` for an immediate Schlüssel-only JSON snapshot. The
+  `/export-jobs` API creates a durable owner-scoped platform ZIP from the fixed internal
+  Schlüssel/Kuvert/Tafel/Zettel/Glocke registry. It exposes progress, cancellation,
+  failed-service retry, expiring authenticated downloads, and partial archives.
+
+### Data export contracts
+
+The two download paths are intentionally separate. `GET /export` remains the synchronous,
+direct JSON export of Schlüssel-owned account data. Kuvert, Tafel, Zettel, and Glocke each
+retain their own synchronous `GET /exports/me` JSON endpoint. Only Schlüssel's
+`POST /export-jobs` starts the asynchronous all-services ZIP; Schlüssel reads its own
+snapshot locally and calls the other four deployment-owned `/exports/me` URLs.
+
+Remote calls use short-lived RS256 export delegations verified through the same JWKS and
+exact issuer as access tokens. A delegation must have `token_use: export`, the single exact
+`hof-service:<service>` audience, `data:export` scope, and nonempty subject, job, and token
+IDs plus a non-expired numeric `exp`. It is accepted only by that service's
+`/exports/me`; ordinary routes and retained legacy export endpoints reject it. The subject
+always comes from the verified token, never from request options, and callers cannot
+supply or override service URLs.
+
+Each service takes a transactionally consistent local snapshot when its own read runs.
+There is no distributed transaction or single platform-wide point-in-time snapshot, so
+service timestamps can differ; retrying failed services keeps successful snapshots and
+captures the retried services later. If at least one service succeeds and at least one
+fails, the job publishes a partial ZIP. `manifest.json` records job and per-service status,
+attempts, file names, byte counts, SHA-256 checksums, timestamps, and sanitized errors;
+successful envelopes are under `services/`, while failed services get diagnostics under
+`errors/` without response bodies.
+
+ZIPs and temporary snapshots are private files. By default, an archive expires 24 hours
+after completion, and cleanup removes its job directory; creation is also bounded by a
+per-user cooldown, retained-job and retained-byte caps, per-service and aggregate response
+limits, a global storage quota, and a free-space reserve. Job APIs and authenticated,
+owner-only downloads send `Cache-Control: no-store, private`, `Pragma: no-cache`, and
+`X-Content-Type-Options: nosniff`.
+
+Exports contain sensitive personal data and should be stored, transferred, and deleted
+accordingly. The platform archive contains only user-facing account data owned by these
+five services. It excludes passwords and password hashes, access/refresh/delegation tokens,
+signing or HMAC keys, runtime configuration, logs, worker leases, notification inbox
+payloads/hashes, internal audit rows, and data belonging to other users.
 
 ### Public API routes
 
@@ -147,6 +186,7 @@ See `.env.example` for the API. The important ones:
 | `PORT` | API port (default `4000`) |
 | `DATABASE_PATH` | SQLite file path |
 | `KEYS_DIR` | Where the RS256 signing keypair is generated/stored on first run |
+| `EXPORT_DIR` | Private directory for bounded temporary snapshots and expiring ZIP artifacts |
 | `JWT_ISSUER` | Must match what every other service expects as the token issuer |
 | `ALLOWED_ORIGINS` | Comma-separated CORS allowlist; include every frontend that calls the public `/theme` API directly |
 | `GLOCKE_BASE_URL` | Internal Glocke backend URL (default `http://glocke-backend:3004`) |
@@ -156,6 +196,13 @@ See `.env.example` for the API. The important ones:
 | `GLOCKE_DISPATCH_INTERVAL_MS` / `GLOCKE_OUTBOX_LEASE_MS` / `GLOCKE_FETCH_TIMEOUT_MS` | Positive worker timings; fetch timeout must remain shorter than the lease |
 | `GLOCKE_WORKER_STOP_TIMEOUT_MS` | Bound on waiting for the active worker during shutdown (default `5000`) |
 | `GLOCKE_MAX_ATTEMPTS` / `GLOCKE_RETRY_BASE_DELAY_MS` / `GLOCKE_RETRY_MAX_DELAY_MS` | Positive durable retry limits and backoff bounds |
+| `KUVERT_EXPORT_URL` / `TAFEL_EXPORT_URL` / `ZETTEL_EXPORT_URL` / `GLOCKE_EXPORT_URL` | Deployment-owned internal `/exports/me` registry; request data can never override these URLs |
+| `EXPORT_REQUEST_TIMEOUT_MS` / `EXPORT_LEASE_MS` / `EXPORT_DISPATCH_INTERVAL_MS` | Export request, fenced lease, and polling timings; request timeout must be shorter than the lease |
+| `EXPORT_MAX_SERVICE_BYTES` / `EXPORT_MAX_AGGREGATE_BYTES` / `EXPORT_MAX_CONCURRENCY` | Per-service, whole-job, and concurrency bounds |
+| `EXPORT_ARTIFACT_TTL_MS` / `EXPORT_WORKER_STOP_TIMEOUT_MS` | Artifact retention and graceful shutdown bounds |
+| `EXPORT_USER_COOLDOWN_MS` / `EXPORT_MAX_RETAINED_JOBS_PER_USER` | Per-user creation cooldown and retained-job cap |
+| `EXPORT_MAX_RETAINED_ARTIFACT_BYTES_PER_USER` | Per-user retained ZIP byte cap |
+| `EXPORT_STORAGE_QUOTA_BYTES` / `EXPORT_MIN_FREE_BYTES` | Global export-directory quota and filesystem free-space reserve, checked before writes |
 
 Password changes commit a `schlussel.security.password_changed.v1` event in the
 same SQLite transaction as the password and replacement session. A lease-based
