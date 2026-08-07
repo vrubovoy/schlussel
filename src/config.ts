@@ -30,6 +30,15 @@ function positiveInteger(env: NodeJS.ProcessEnv, name: string, fallback: number)
   return value
 }
 
+function nonnegativeInteger(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
+  const raw = env[name]
+  const value = raw == null || raw === '' ? fallback : Number(raw)
+  if (!Number.isSafeInteger(value) || value < 0 || value > MAX_TIMER_VALUE) {
+    throw new Error(`${name} must be a nonnegative integer no greater than ${MAX_TIMER_VALUE}`)
+  }
+  return value
+}
+
 function serviceBaseUrl(env: NodeJS.ProcessEnv): string {
   const raw = env['GLOCKE_BASE_URL'] ?? 'http://glocke-backend:3004'
   let url: URL
@@ -93,5 +102,93 @@ export function loadNotificationConfig(env: NodeJS.ProcessEnv = process.env): No
     maxAttempts: positiveInteger(env, 'GLOCKE_MAX_ATTEMPTS', 8),
     baseDelayMs,
     maxDelayMs,
+  }
+}
+
+export interface ExportConfig {
+  exportDir: string
+  kuvertUrl: string
+  tafelUrl: string
+  zettelUrl: string
+  glockeUrl: string
+  dispatchIntervalMs: number
+  requestTimeoutMs: number
+  leaseMs: number
+  workerStopTimeoutMs: number
+  maxResponseBytes: number
+  maxAggregateBytes: number
+  maxConcurrency: number
+  artifactTtlMs: number
+  userCooldownMs: number
+  maxRetainedJobsPerUser: number
+  maxRetainedArtifactBytesPerUser: number
+  storageQuotaBytes: number
+  minFreeBytes: number
+}
+
+function exportServiceUrl(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
+  const raw = env[name] ?? fallback
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    throw new Error(`${name} must be a valid internal HTTP(S) export URL`)
+  }
+  if (
+    !['http:', 'https:'].includes(url.protocol) ||
+    !url.hostname ||
+    url.username ||
+    url.password ||
+    url.pathname !== '/exports/me' ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(`${name} must be a valid internal HTTP(S) URL ending in /exports/me`)
+  }
+  return url.toString()
+}
+
+export function loadExportConfig(env: NodeJS.ProcessEnv = process.env): ExportConfig {
+  const requestTimeoutMs = positiveInteger(env, 'EXPORT_REQUEST_TIMEOUT_MS', 15_000)
+  const leaseMs = positiveInteger(env, 'EXPORT_LEASE_MS', 120_000)
+  const maxResponseBytes = positiveInteger(env, 'EXPORT_MAX_SERVICE_BYTES', 25 * 1024 * 1024)
+  const maxAggregateBytes = positiveInteger(env, 'EXPORT_MAX_AGGREGATE_BYTES', 100 * 1024 * 1024)
+  if (requestTimeoutMs >= leaseMs) throw new Error('EXPORT_REQUEST_TIMEOUT_MS must be shorter than EXPORT_LEASE_MS')
+  if (maxAggregateBytes < maxResponseBytes) {
+    throw new Error('EXPORT_MAX_AGGREGATE_BYTES must be at least EXPORT_MAX_SERVICE_BYTES')
+  }
+  const maxRetainedArtifactBytesPerUser = positiveInteger(
+    env, 'EXPORT_MAX_RETAINED_ARTIFACT_BYTES_PER_USER', 300 * 1024 * 1024,
+  )
+  const storageQuotaBytes = positiveInteger(env, 'EXPORT_STORAGE_QUOTA_BYTES', 1024 * 1024 * 1024)
+  const minFreeBytes = positiveInteger(env, 'EXPORT_MIN_FREE_BYTES', 256 * 1024 * 1024)
+  if (maxRetainedArtifactBytesPerUser < maxAggregateBytes) {
+    throw new Error('EXPORT_MAX_RETAINED_ARTIFACT_BYTES_PER_USER must be at least EXPORT_MAX_AGGREGATE_BYTES')
+  }
+  if (storageQuotaBytes < maxAggregateBytes * 2) {
+    throw new Error('EXPORT_STORAGE_QUOTA_BYTES must be at least twice EXPORT_MAX_AGGREGATE_BYTES')
+  }
+
+  const exportDir = env['EXPORT_DIR'] ?? './data/exports'
+  if (!exportDir.trim()) throw new Error('EXPORT_DIR must not be empty')
+  return {
+    exportDir,
+    kuvertUrl: exportServiceUrl(env, 'KUVERT_EXPORT_URL', 'http://kuvert-backend:3001/exports/me'),
+    tafelUrl: exportServiceUrl(env, 'TAFEL_EXPORT_URL', 'http://tafel-backend:3002/exports/me'),
+    zettelUrl: exportServiceUrl(env, 'ZETTEL_EXPORT_URL', 'http://zettel-backend:3003/exports/me'),
+    glockeUrl: exportServiceUrl(env, 'GLOCKE_EXPORT_URL', 'http://glocke-backend:3004/exports/me'),
+    dispatchIntervalMs: positiveInteger(env, 'EXPORT_DISPATCH_INTERVAL_MS', 1_000),
+    requestTimeoutMs,
+    leaseMs,
+    workerStopTimeoutMs: positiveInteger(env, 'EXPORT_WORKER_STOP_TIMEOUT_MS', 20_000),
+    maxResponseBytes,
+    maxAggregateBytes,
+    maxConcurrency: positiveInteger(env, 'EXPORT_MAX_CONCURRENCY', 1),
+    artifactTtlMs: positiveInteger(env, 'EXPORT_ARTIFACT_TTL_MS', 24 * 60 * 60_000),
+    userCooldownMs: nonnegativeInteger(env, 'EXPORT_USER_COOLDOWN_MS', 60_000),
+    maxRetainedJobsPerUser: positiveInteger(env, 'EXPORT_MAX_RETAINED_JOBS_PER_USER', 3),
+    maxRetainedArtifactBytesPerUser,
+    storageQuotaBytes,
+    minFreeBytes,
   }
 }

@@ -17,6 +17,11 @@ const mockUploadAvatar = vi.fn()
 const mockDeleteAvatar = vi.fn()
 const mockListConnectedAccounts = vi.fn()
 const mockExportAccountData = vi.fn()
+const mockCreateExportJob = vi.fn()
+const mockGetExportJob = vi.fn()
+const mockRetryExportJob = vi.fn()
+const mockCancelExportJob = vi.fn()
+const mockDownloadExportJob = vi.fn()
 
 vi.mock('../lib/api', () => ({
   refreshSession: (...args: unknown[]) => mockRefreshSession(...args),
@@ -34,6 +39,11 @@ vi.mock('../lib/api', () => ({
   deleteAvatar: (...args: unknown[]) => mockDeleteAvatar(...args),
   listConnectedAccounts: (...args: unknown[]) => mockListConnectedAccounts(...args),
   exportAccountData: (...args: unknown[]) => mockExportAccountData(...args),
+  createExportJob: (...args: unknown[]) => mockCreateExportJob(...args),
+  getExportJob: (...args: unknown[]) => mockGetExportJob(...args),
+  retryExportJob: (...args: unknown[]) => mockRetryExportJob(...args),
+  cancelExportJob: (...args: unknown[]) => mockCancelExportJob(...args),
+  downloadExportJob: (...args: unknown[]) => mockDownloadExportJob(...args),
   ApiError: class ApiError extends Error {
     status: number
     constructor(status: number, message: string) {
@@ -90,6 +100,11 @@ beforeEach(() => {
   mockDeleteAvatar.mockReset()
   mockListConnectedAccounts.mockReset()
   mockExportAccountData.mockReset()
+  mockCreateExportJob.mockReset()
+  mockGetExportJob.mockReset()
+  mockRetryExportJob.mockReset()
+  mockCancelExportJob.mockReset()
+  mockDownloadExportJob.mockReset()
   // Default: an empty sessions list, so tests that don't care about the
   // sessions card (most of them) don't have to stub this themselves.
   mockListSessions.mockResolvedValue([])
@@ -1024,6 +1039,17 @@ describe('AccountPage — PrivacyCard', () => {
 })
 
 describe('AccountPage — DataExportCard', () => {
+  const PARTIAL_JOB = {
+    id: 'job-1', status: 'partial', createdAt: '2026-08-07T10:00:00.000Z',
+    startedAt: '2026-08-07T10:00:01.000Z', completedAt: '2026-08-07T10:00:02.000Z',
+    expiresAt: '2026-08-08T10:00:02.000Z', downloadUrl: '/auth/export-jobs/job-1/download',
+    error: null,
+    services: [
+      { service: 'schlussel', status: 'succeeded', attempts: 1, bytes: 100, sha256: 'abc', error: null },
+      { service: 'kuvert', status: 'failed', attempts: 1, bytes: null, sha256: null, error: 'Service returned HTTP 503' },
+    ],
+  }
+
   it('renders a data-export button', async () => {
     await renderLoggedIn()
     expect(await screen.findByRole('button', { name: /скачать мои данные|экспорт/i })).toBeInTheDocument()
@@ -1051,6 +1077,85 @@ describe('AccountPage — DataExportCard', () => {
     await screen.findByRole('button', { name: /скачать мои данные|экспорт/i })
     const text = document.body.textContent ?? ''
     expect(text).toMatch(/schlussel|аккаунт|этого сервиса|только этот/i)
+  })
+
+  it('starts a platform ZIP job and shows partial progress with retry and download controls', async () => {
+    mockCreateExportJob.mockResolvedValue(PARTIAL_JOB)
+    const { user } = await renderLoggedIn()
+
+    await user.click(screen.getByRole('button', { name: /создать zip всех сервисов/i }))
+
+    await waitFor(() => expect(mockCreateExportJob).toHaveBeenCalledWith('token-abc'))
+    expect(await screen.findByText('Готово частично')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100')
+    expect(screen.getByRole('button', { name: /повторить ошибки/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /скачать zip/i })).toBeInTheDocument()
+  })
+
+  it('retries only the failed portion through the job retry API', async () => {
+    mockCreateExportJob.mockResolvedValue(PARTIAL_JOB)
+    mockRetryExportJob.mockResolvedValue({
+      ...PARTIAL_JOB,
+      status: 'queued',
+      completedAt: null,
+      expiresAt: null,
+      downloadUrl: null,
+      services: PARTIAL_JOB.services.map((service) => service.status === 'failed'
+        ? { ...service, status: 'pending', error: null }
+        : service),
+    })
+    const { user } = await renderLoggedIn()
+    await user.click(screen.getByRole('button', { name: /создать zip всех сервисов/i }))
+    await user.click(await screen.findByRole('button', { name: /повторить ошибки/i }))
+
+    await waitFor(() => expect(mockRetryExportJob).toHaveBeenCalledWith('token-abc', 'job-1'))
+  })
+
+  it('refreshes once after a 401 download and retries with the fresh access token', async () => {
+    const ApiError = (await import('../lib/api')).ApiError
+    mockCreateExportJob.mockResolvedValue(PARTIAL_JOB)
+    mockDownloadExportJob
+      .mockRejectedValueOnce(new ApiError(401, 'expired'))
+      .mockResolvedValueOnce(new Blob(['zip']))
+    const { user } = await renderLoggedIn()
+    mockRefreshSession.mockClear()
+    mockRefreshSession.mockResolvedValue({ accessToken: 'fresh-token' })
+
+    await user.click(screen.getByRole('button', { name: /создать zip всех сервисов/i }))
+    await user.click(await screen.findByRole('button', { name: /скачать zip/i }))
+
+    await waitFor(() => expect(mockRefreshSession).toHaveBeenCalledOnce())
+    expect(mockDownloadExportJob.mock.calls).toEqual([
+      ['token-abc', 'job-1'],
+      ['fresh-token', 'job-1'],
+    ])
+  })
+
+  it('offers archive-only retry when every service succeeded but ZIP assembly failed', async () => {
+    const archiveFailed = {
+      ...PARTIAL_JOB,
+      error: 'Export storage quota exceeded',
+      services: PARTIAL_JOB.services.map((service) => ({
+        ...service,
+        status: 'succeeded',
+        bytes: service.bytes ?? 100,
+        sha256: service.sha256 ?? 'def',
+        error: null,
+      })),
+    }
+    mockCreateExportJob.mockResolvedValue(archiveFailed)
+    mockRetryExportJob.mockResolvedValue({
+      ...archiveFailed,
+      status: 'queued',
+      error: null,
+    })
+    const { user } = await renderLoggedIn()
+
+    await user.click(screen.getByRole('button', { name: /создать zip всех сервисов/i }))
+    expect(await screen.findByText('Export storage quota exceeded')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /повторить сборку архива/i }))
+
+    await waitFor(() => expect(mockRetryExportJob).toHaveBeenCalledWith('token-abc', 'job-1'))
   })
 })
 

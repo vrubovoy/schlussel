@@ -25,6 +25,7 @@ describe('openApiDocument', () => {
       '/register', '/login', '/token', '/refresh', '/logout', '/me',
       '/password', '/account', '/name', '/profile', '/avatar',
       '/connected-accounts', '/connected-accounts/{id}', '/export',
+      '/export-jobs', '/export-jobs/{id}', '/export-jobs/{id}/retry', '/export-jobs/{id}/download',
       '/sessions', '/sessions/{id}',
     ]) {
       expect(paths).toContain(path)

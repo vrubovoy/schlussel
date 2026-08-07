@@ -3,13 +3,14 @@ import {
   KeyRound, Trash2, User as UserIcon, Monitor, ShieldCheck, Globe, Bell, Link2, Lock, Download,
   Send, Camera,
 } from 'lucide-react'
-import { Button, Field, Badge } from '@zudar107/schloss-ui'
+import { Button, Field, Badge, DirectExportAction } from '@zudar107/schloss-ui'
 import { generateCodeVerifier, generateCodeChallenge } from '../../lib/pkce'
 import {
   refreshSession, fetchMe, exchangeCode, changePassword, deleteAccount, updateName,
   listSessions, revokeSession, logoutEverywhere, ApiError, type AuthUser, type Session,
   fetchProfile, updateProfile, uploadAvatar, deleteAvatar, listConnectedAccounts, exportAccountData,
-  type Profile, type ConnectedAccount, type DateFormat, type WeekStart, type Language,
+  createExportJob, getExportJob, retryExportJob, cancelExportJob, downloadExportJob,
+  type Profile, type ConnectedAccount, type DateFormat, type WeekStart, type Language, type ExportJob,
 } from '../../lib/api'
 import { MAX_AVATAR_BYTES, readFileAsDataUrl } from '../../lib/avatar'
 import { readReturnTo, DEFAULT_APP_URL, type ReturnToResult } from '../../lib/returnTo'
@@ -744,12 +745,52 @@ function PrivacyCard() {
 function DataExportCard({ accessToken }: { accessToken: string }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [job, setJob] = useState<ExportJob | null>(null)
+  const [jobAction, setJobAction] = useState(false)
+  const [jobError, setJobError] = useState('')
+  const [pollingStopped, setPollingStopped] = useState(false)
+  const exportTokenRef = useRef(accessToken)
+
+  useEffect(() => {
+    exportTokenRef.current = accessToken
+  }, [accessToken])
+
+  async function withExportAuth<T>(request: (token: string) => Promise<T>): Promise<T> {
+    try {
+      return await request(exportTokenRef.current)
+    } catch (requestError) {
+      if (!(requestError instanceof ApiError) || requestError.status !== 401) throw requestError
+      try {
+        const refreshed = await refreshSession()
+        exportTokenRef.current = refreshed.accessToken
+        return await request(refreshed.accessToken)
+      } catch (refreshError) {
+        setPollingStopped(true)
+        throw refreshError
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (!job || pollingStopped || !['queued', 'running'].includes(job.status)) return
+    let cancelled = false
+    const poll = () => {
+      withExportAuth((token) => getExportJob(token, job.id))
+        .then((next) => { if (!cancelled) setJob(next) })
+        .catch(() => { if (!cancelled) setJobError('Не удалось обновить состояние экспорта') })
+    }
+    const timer = window.setInterval(poll, 1000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [job, pollingStopped])
 
   async function handleExport() {
     setError('')
     setLoading(true)
     try {
-      const data = await exportAccountData(accessToken)
+      const data = await withExportAuth((token) => exportAccountData(token))
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -764,26 +805,129 @@ function DataExportCard({ accessToken }: { accessToken: string }) {
     }
   }
 
-  return (
+  async function handleCreateJob() {
+    setJobError('')
+    setPollingStopped(false)
+    setJobAction(true)
+    try {
+      setJob(await withExportAuth((token) => createExportJob(token)))
+    } catch {
+      setJobError('Не удалось запустить экспорт всех сервисов')
+    } finally {
+      setJobAction(false)
+    }
+  }
+
+  async function handleRetry() {
+    if (!job) return
+    setJobError('')
+    setJobAction(true)
+    try {
+      setPollingStopped(false)
+      setJob(await withExportAuth((token) => retryExportJob(token, job.id)))
+    } catch {
+      setJobError('Не удалось повторить экспорт')
+    } finally {
+      setJobAction(false)
+    }
+  }
+
+  async function handleCancel() {
+    if (!job) return
+    setJobError('')
+    setJobAction(true)
+    try {
+      setJob(await withExportAuth((token) => cancelExportJob(token, job.id)))
+    } catch {
+      setJobError('Не удалось отменить экспорт')
+    } finally {
+      setJobAction(false)
+    }
+  }
+
+  async function handleDownload() {
+    if (!job) return
+    setJobError('')
+    setJobAction(true)
+    try {
+      const blob = await withExportAuth((token) => downloadExportJob(token, job.id))
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `hof-export-${job.id}.zip`
+      anchor.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      setJobError('Не удалось скачать архив')
+    } finally {
+      setJobAction(false)
+    }
+  }
+
+  const finishedServices = job?.services.filter((service) =>
+    ['succeeded', 'failed', 'cancelled'].includes(service.status),
+  ).length ?? 0
+  const progress = job ? Math.round((finishedServices / job.services.length) * 100) : 0
+  const hasFailedServices = job?.services.some((service) => service.status === 'failed') ?? false
+
+  return <>
     <div className="card" style={{ padding: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
         <Download size={17} color="var(--text-secondary)" />
-        <h2 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>Экспорт данных</h2>
+        <h2 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>Архив данных платформы</h2>
       </div>
       <p style={{ margin: '0 0 1rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-        Скачивает данные твоего аккаунта Schlüssel (профиль, настройки, список сессий) в формате JSON.
-        Данные Kuvert, Tafel и Zettel экспортируются отдельно, в настройках каждого сервиса.
+        Собирает приватный ZIP из Schlüssel, Kuvert, Tafel, Zettel и Glocke. Архив создаётся в фоне и удаляется после истечения срока хранения.
       </p>
-      {error && (
+      {jobError && (
         <div style={{ marginBottom: '1rem', padding: '0.625rem 0.75rem', background: 'var(--danger-muted)', border: '1px solid var(--danger)', borderRadius: 8, fontSize: '0.8125rem', color: 'var(--danger)' }}>
-          {error}
+          {jobError}
         </div>
       )}
-      <Button variant="secondary" onClick={handleExport} disabled={loading} style={{ padding: '0.5rem 0.875rem', fontSize: '0.8125rem' }}>
-        {loading ? 'Экспорт…' : 'Скачать мои данные'}
-      </Button>
+      {job?.error && (
+        <div style={{ marginBottom: '1rem', padding: '0.625rem 0.75rem', background: 'var(--danger-muted)', border: '1px solid var(--danger)', borderRadius: 8, fontSize: '0.8125rem', color: 'var(--danger)' }}>
+          {job.error}
+        </div>
+      )}
+      {job && (
+        <div style={{ marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 6 }}>
+            <span>{job.status === 'partial' ? 'Готово частично' : job.status === 'failed' ? 'Не удалось собрать' : job.status === 'completed' ? 'Готово' : job.status === 'cancelled' ? 'Отменено' : 'Сбор данных'}</span>
+            <span>{finishedServices}/{job.services.length}</span>
+          </div>
+          <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress} style={{ height: 6, borderRadius: 999, overflow: 'hidden', background: 'var(--border)' }}>
+            <div style={{ width: `${progress}%`, height: '100%', background: job.status === 'partial' ? 'var(--warning)' : 'var(--accent)', transition: 'width 200ms' }} />
+          </div>
+          {job.services.map((service) => (
+            <div key={service.service} style={{ display: 'flex', justifyContent: 'space-between', marginTop: 7, fontSize: '0.75rem', color: service.status === 'failed' ? 'var(--danger)' : 'var(--text-secondary)' }}>
+              <span>{service.service}</span><span>{service.status}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+        {!job || ['cancelled', 'expired', 'completed'].includes(job.status) ? (
+          <Button variant="secondary" onClick={handleCreateJob} disabled={jobAction}>Создать ZIP всех сервисов</Button>
+        ) : null}
+        {job?.downloadUrl && <Button variant="secondary" onClick={handleDownload} disabled={jobAction}>Скачать ZIP</Button>}
+        {job && ['partial', 'failed'].includes(job.status) && (hasFailedServices || job.error) && (
+          <Button variant="secondary" onClick={handleRetry} disabled={jobAction}>
+            {hasFailedServices ? 'Повторить ошибки' : 'Повторить сборку архива'}
+          </Button>
+        )}
+        {job && ['queued', 'running'].includes(job.status) && <Button variant="ghost" onClick={handleCancel} disabled={jobAction}>Отменить</Button>}
+      </div>
     </div>
-  )
+    <DirectExportAction
+      title="Данные аккаунта Schlüssel"
+      description="Прямой JSON только этого сервиса: профиль, настройки, список сессий и связанные аккаунты."
+      actionLabel="Скачать мои данные Schlüssel"
+      loadingLabel="Подготовка JSON…"
+      onExport={handleExport}
+      loading={loading}
+      error={error}
+    />
+  </>
 }
 
 const SESSION_TIMEOUT_OPTIONS: { value: string; label: string }[] = [

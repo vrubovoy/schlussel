@@ -17,6 +17,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
 import type { Hono } from 'hono'
+import { SignJWT, decodeJwt } from 'jose'
 
 // ── Isolated environment ────────────────────────────────────────────────────
 const testId = randomUUID().slice(0, 8)
@@ -31,6 +32,7 @@ process.env['JWT_ISSUER'] = 'schlussel'
 // ── Module handles populated in beforeAll ───────────────────────────────────
 let app: Hono
 let sqlite: import('better-sqlite3').Database
+let getPrivateKey: () => CryptoKey
 
 // ── Setup / teardown ────────────────────────────────────────────────────────
 beforeAll(async () => {
@@ -49,6 +51,7 @@ beforeAll(async () => {
     ])
 
   const { initKeys, getJwks } = keysModule
+  getPrivateKey = keysModule.getPrivateKey
   const { authRouter } = authModule
   const { adminRouter } = adminModule
   const { db, sqlite: sqliteInstance } = dbModule
@@ -530,6 +533,67 @@ describe('POST /auth/refresh', () => {
     const newCookie = getCookieValue(res, 'schloss_refresh')
     expect(newCookie).not.toBeNull()
     expect(newCookie).not.toBe(refreshTokenCookie)
+  })
+
+  it('accepts a stored legacy untyped refresh JWT once and rotates it to token_use refresh', async () => {
+    const user = sqlite.prepare('SELECT id FROM users WHERE email = ?').get('alice@example.com') as { id: string }
+    const legacy = await new SignJWT({ jti: randomUUID() })
+      .setProtectedHeader({ alg: 'RS256', kid: 'schloss-1' })
+      .setSubject(user.id)
+      .setIssuedAt()
+      .setIssuer('schlussel')
+      .setExpirationTime('7d')
+      .sign(getPrivateKey())
+    const nowSeconds = Math.floor(Date.now() / 1000)
+    sqlite.prepare(`
+      INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(randomUUID(), user.id, createHash('sha256').update(legacy).digest('hex'), nowSeconds + 604800, nowSeconds)
+
+    const response = await app.request('/auth/refresh', {
+      method: 'POST',
+      headers: { Cookie: `schloss_refresh=${legacy}`, 'X-Schlussel-Frontend': '1' },
+    })
+
+    expect(response.status).toBe(200)
+    const replacement = getCookieValue(response, 'schloss_refresh')!
+    expect(decodeJwt(replacement)['token_use']).toBe('refresh')
+    expect(sqlite.prepare('SELECT 1 FROM refresh_tokens WHERE token_hash = ?').get(
+      createHash('sha256').update(legacy).digest('hex'),
+    )).toBeUndefined()
+  })
+
+  it('does not accept an untyped refresh-shaped JWT unless its exact hash is stored', async () => {
+    const user = sqlite.prepare('SELECT id FROM users WHERE email = ?').get('alice@example.com') as { id: string }
+    const legacy = await new SignJWT({ jti: randomUUID() })
+      .setProtectedHeader({ alg: 'RS256', kid: 'schloss-1' })
+      .setSubject(user.id)
+      .setIssuedAt()
+      .setIssuer('schlussel')
+      .setExpirationTime('7d')
+      .sign(getPrivateKey())
+
+    expect((await app.request('/auth/refresh', {
+      method: 'POST', headers: { Cookie: `schloss_refresh=${legacy}` },
+    })).status).toBe(401)
+  })
+
+  it('does not consume a stored legacy refresh JWT through an untrusted proxy origin', async () => {
+    const user = sqlite.prepare('SELECT id FROM users WHERE email = ?').get('alice@example.com') as { id: string }
+    const legacy = await new SignJWT({ jti: randomUUID() })
+      .setProtectedHeader({ alg: 'RS256', kid: 'schloss-1' })
+      .setSubject(user.id).setIssuedAt().setIssuer('schlussel').setExpirationTime('7d').sign(getPrivateKey())
+    const hash = createHash('sha256').update(legacy).digest('hex')
+    const nowSeconds = Math.floor(Date.now() / 1000)
+    sqlite.prepare(`
+      INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)
+    `).run(randomUUID(), user.id, hash, nowSeconds + 604800, nowSeconds)
+
+    const response = await app.request('/auth/refresh', {
+      method: 'POST', headers: { Cookie: `schloss_refresh=${legacy}` },
+    })
+    expect(response.status).toBe(401)
+    expect(sqlite.prepare('SELECT 1 FROM refresh_tokens WHERE token_hash = ?').get(hash)).toBeDefined()
   })
 
   it('old refresh token is rejected after rotation (single-use)', async () => {

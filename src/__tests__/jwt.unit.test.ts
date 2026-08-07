@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto'
 import { mkdirSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
+import { SignJWT } from 'jose'
 
 const testId = randomUUID().slice(0, 8)
 const KEYS_DIR = join(tmpdir(), `schlussel-jwt-unit-${testId}`)
@@ -23,6 +24,9 @@ type JwtPayload = { sub: string; email: string; name: string; role: 'admin' | 'u
 let signAccessToken: (payload: JwtPayload) => Promise<string>
 let signRefreshToken: (userId: string) => Promise<string>
 let verifyToken: (token: string) => Promise<Record<string, unknown>>
+let verifyAccessToken: (token: string) => Promise<Record<string, unknown>>
+let signExportToken: (userId: string, service: string, jobId: string) => Promise<string>
+let privateKey: CryptoKey
 
 const ALICE: JwtPayload = {
   sub: 'user-alice-123',
@@ -35,10 +39,13 @@ beforeAll(async () => {
   mkdirSync(KEYS_DIR, { recursive: true })
   const keysModule = await import('../utils/keys.js')
   await keysModule.initKeys()
+  privateKey = keysModule.getPrivateKey()
   const jwtModule = await import('../utils/jwt.js')
   signAccessToken = jwtModule.signAccessToken
   signRefreshToken = jwtModule.signRefreshToken
   verifyToken = jwtModule.verifyToken
+  verifyAccessToken = jwtModule.verifyAccessToken
+  signExportToken = jwtModule.signExportToken
 })
 
 afterAll(() => {
@@ -89,6 +96,12 @@ describe('signAccessToken', () => {
     expect(payload['role']).toBe(ALICE.role)
   })
 
+  it('marks newly issued access tokens with token_use: access', async () => {
+    const token = await signAccessToken(ALICE)
+    const payload = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString())
+    expect(payload['token_use']).toBe('access')
+  })
+
   it('payload contains exp (expiry claim)', async () => {
     const token = await signAccessToken(ALICE)
     const payload = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString())
@@ -132,6 +145,11 @@ describe('signAccessToken', () => {
 // ── signRefreshToken ─────────────────────────────────────────────────────────
 
 describe('signRefreshToken', () => {
+  it('uses a distinct refresh token_use', async () => {
+    const token = await signRefreshToken(ALICE.sub)
+    const payload = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString())
+    expect(payload['token_use']).toBe('refresh')
+  })
   it('returns a non-empty string', async () => {
     const token = await signRefreshToken(ALICE.sub)
     expect(typeof token).toBe('string')
@@ -268,5 +286,34 @@ describe('verifyToken', () => {
   it('verifies a valid refresh token', async () => {
     const token = await signRefreshToken(ALICE.sub)
     await expect(verifyToken(token)).resolves.toBeDefined()
+  })
+})
+
+describe('access-token rollout discrimination', () => {
+  it('accepts a signed legacy access-shaped JWT without token_use', async () => {
+    const token = await new SignJWT({ email: ALICE.email, name: ALICE.name, role: ALICE.role })
+      .setProtectedHeader({ alg: 'RS256', kid: 'schloss-1' })
+      .setSubject(ALICE.sub)
+      .setIssuer('schlussel')
+      .setIssuedAt()
+      .setExpirationTime('15m')
+      .sign(privateKey)
+    await expect(verifyAccessToken(token)).resolves.toMatchObject({ sub: ALICE.sub, email: ALICE.email })
+  })
+
+  it('rejects typed refresh and export delegations as access tokens', async () => {
+    await expect(verifyAccessToken(await signRefreshToken(ALICE.sub))).rejects.toThrow('Invalid access token')
+    await expect(verifyAccessToken(await signExportToken(ALICE.sub, 'kuvert', 'job-1'))).rejects.toThrow('Invalid access token')
+  })
+
+  it('rejects an untyped refresh-shaped JWT as an access token', async () => {
+    const token = await new SignJWT({ jti: randomUUID() })
+      .setProtectedHeader({ alg: 'RS256', kid: 'schloss-1' })
+      .setSubject(ALICE.sub)
+      .setIssuer('schlussel')
+      .setIssuedAt()
+      .setExpirationTime('7d')
+      .sign(privateKey)
+    await expect(verifyAccessToken(token)).rejects.toThrow('Invalid access token')
   })
 })

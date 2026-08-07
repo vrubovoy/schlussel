@@ -51,6 +51,27 @@ export interface AccountExport {
   connectedAccounts: { provider: string; externalUsername: string | null; connectedAt: string }[]
 }
 
+export type ExportJobStatus = 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'expired'
+
+export interface ExportJob {
+  id: string
+  status: ExportJobStatus
+  createdAt: string
+  startedAt: string | null
+  completedAt: string | null
+  expiresAt: string | null
+  downloadUrl: string | null
+  error: string | null
+  services: Array<{
+    service: 'schlussel' | 'kuvert' | 'tafel' | 'zettel' | 'glocke'
+    status: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+    attempts: number
+    bytes: number | null
+    sha256: string | null
+    error: string | null
+  }>
+}
+
 interface LoginResponse {
   code: string
 }
@@ -211,6 +232,34 @@ export function disconnectAccount(accessToken: string, id: string): Promise<{ ok
 
 export function exportAccountData(accessToken: string): Promise<AccountExport> {
   return authed<AccountExport>('GET', '/export', accessToken)
+}
+
+export function createExportJob(accessToken: string): Promise<ExportJob> {
+  return authed<ExportJob>('POST', '/export-jobs', accessToken, {})
+}
+
+export function getExportJob(accessToken: string, id: string): Promise<ExportJob> {
+  return authed<ExportJob>('GET', `/export-jobs/${id}`, accessToken)
+}
+
+export function retryExportJob(accessToken: string, id: string): Promise<ExportJob> {
+  return authed<ExportJob>('POST', `/export-jobs/${id}/retry`, accessToken)
+}
+
+export function cancelExportJob(accessToken: string, id: string): Promise<ExportJob> {
+  return authed<ExportJob>('DELETE', `/export-jobs/${id}`, accessToken)
+}
+
+export async function downloadExportJob(accessToken: string, id: string): Promise<Blob> {
+  const response = await fetch(`/auth/export-jobs/${id}/download`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    credentials: 'include',
+  })
+  if (!response.ok) {
+    const data = await response.json().catch(() => null) as { error?: string } | null
+    throw new ApiError(response.status, data?.error ?? 'Request failed')
+  }
+  return response.blob()
 }
 
 export function listSessions(accessToken: string): Promise<Session[]> {

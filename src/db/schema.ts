@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(),
@@ -146,6 +146,92 @@ export const notificationOutbox = sqliteTable('notification_outbox', {
   ),
 ])
 
+export const exportJobs = sqliteTable('export_jobs', {
+  id: text('id').primaryKey(),
+  ownerUserId: text('owner_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  status: text('status', {
+    enum: ['queued', 'running', 'completed', 'partial', 'failed', 'cancelled', 'expired'],
+  }).notNull().default('queued'),
+  createdAt: integer('created_at').notNull(),
+  startedAt: integer('started_at'),
+  completedAt: integer('completed_at'),
+  expiresAt: integer('expires_at'),
+  archivePath: text('archive_path'),
+  archiveBytes: integer('archive_bytes'),
+  lastError: text('last_error'),
+  leaseId: text('lease_id'),
+  leaseUntil: integer('lease_until'),
+}, (table) => [
+  check(
+    'export_jobs_status_check',
+    sql`${table.status} in ('queued', 'running', 'completed', 'partial', 'failed', 'cancelled', 'expired')`,
+  ),
+  uniqueIndex('export_jobs_one_active_owner_idx')
+    .on(table.ownerUserId)
+    .where(sql`${table.status} in ('queued', 'running')`),
+  index('export_jobs_dispatch_idx').on(table.status, table.leaseUntil, table.createdAt),
+  index('export_jobs_expiry_idx').on(table.expiresAt),
+])
+
+export const exportJobServices = sqliteTable('export_job_services', {
+  jobId: text('job_id').notNull().references(() => exportJobs.id, { onDelete: 'cascade' }),
+  service: text('service', { enum: ['schlussel', 'kuvert', 'tafel', 'zettel', 'glocke'] }).notNull(),
+  status: text('status', {
+    enum: ['pending', 'running', 'succeeded', 'failed', 'cancelled'],
+  }).notNull().default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  bytes: integer('bytes'),
+  sha256: text('sha256'),
+  snapshotPath: text('snapshot_path'),
+  lastError: text('last_error'),
+  startedAt: integer('started_at'),
+  completedAt: integer('completed_at'),
+}, (table) => [
+  primaryKey({ columns: [table.jobId, table.service] }),
+  check(
+    'export_job_services_status_check',
+    sql`${table.status} in ('pending', 'running', 'succeeded', 'failed', 'cancelled')`,
+  ),
+])
+
+// One immutable metadata row per service attempt. Payloads stay exclusively
+// in private files; errors are sanitized before they reach either table.
+export const exportJobServiceAttempts = sqliteTable('export_job_service_attempts', {
+  id: text('id').primaryKey(),
+  jobId: text('job_id').notNull().references(() => exportJobs.id, { onDelete: 'cascade' }),
+  service: text('service', { enum: ['schlussel', 'kuvert', 'tafel', 'zettel', 'glocke'] }).notNull(),
+  attempt: integer('attempt').notNull(),
+  status: text('status', { enum: ['running', 'succeeded', 'failed', 'cancelled'] }).notNull(),
+  startedAt: integer('started_at').notNull(),
+  completedAt: integer('completed_at'),
+  bytes: integer('bytes'),
+  sha256: text('sha256'),
+  error: text('error'),
+}, (table) => [
+  uniqueIndex('export_job_service_attempt_unique_idx').on(table.jobId, table.service, table.attempt),
+  check(
+    'export_job_service_attempts_status_check',
+    sql`${table.status} in ('running', 'succeeded', 'failed', 'cancelled')`,
+  ),
+])
+
+export const exportJobEvents = sqliteTable('export_job_events', {
+  id: text('id').primaryKey(),
+  jobId: text('job_id').notNull().references(() => exportJobs.id, { onDelete: 'cascade' }),
+  ownerUserId: text('owner_user_id').notNull(),
+  eventType: text('event_type', {
+    enum: ['created', 'create_reused', 'retried', 'cancelled', 'downloaded'],
+  }).notNull(),
+  createdAt: integer('created_at').notNull(),
+  metadata: text('metadata'),
+}, (table) => [
+  check(
+    'export_job_events_type_check',
+    sql`${table.eventType} in ('created', 'create_reused', 'retried', 'cancelled', 'downloaded')`,
+  ),
+  index('export_job_events_job_idx').on(table.jobId, table.createdAt),
+])
+
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type RefreshToken = typeof refreshTokens.$inferSelect
@@ -154,3 +240,5 @@ export type Invite = typeof invites.$inferSelect
 export type ThemePreference = typeof themePreference.$inferSelect
 export type ConnectedAccount = typeof connectedAccounts.$inferSelect
 export type NotificationOutbox = typeof notificationOutbox.$inferSelect
+export type ExportJob = typeof exportJobs.$inferSelect
+export type ExportJobService = typeof exportJobServices.$inferSelect
