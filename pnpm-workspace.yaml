@@ -1,5 +1,6 @@
 packages:
   - "frontend"
+  - "schloss-server-kit"
   - "schloss-ui"
 
 allowBuilds:

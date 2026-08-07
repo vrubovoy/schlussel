@@ -22,13 +22,26 @@ services:
       - KEYS_DIR=/data/keys
       - PORT=4000
       - JWT_ISSUER=schlussel
+      - GLOCKE_BASE_URL=http://glocke-backend:3004
+      - SCHLUSSEL_TO_GLOCKE_HMAC_KEY_ID=${SCHLUSSEL_TO_GLOCKE_HMAC_KEY_ID:-schlussel-v1}
+      - SCHLUSSEL_TO_GLOCKE_HMAC_SECRET=${SCHLUSSEL_TO_GLOCKE_HMAC_SECRET:?set SCHLUSSEL_TO_GLOCKE_HMAC_SECRET}
+      - GLOCKE_TO_SCHLUSSEL_HMAC_KEY_ID=${GLOCKE_TO_SCHLUSSEL_HMAC_KEY_ID:-glocke-v1}
+      - GLOCKE_TO_SCHLUSSEL_HMAC_SECRET=${GLOCKE_TO_SCHLUSSEL_HMAC_SECRET:?set GLOCKE_TO_SCHLUSSEL_HMAC_SECRET}
+      - GLOCKE_SIGNATURE_MAX_SKEW_SECONDS=${GLOCKE_SIGNATURE_MAX_SKEW_SECONDS:-300}
+      - GLOCKE_DISPATCH_INTERVAL_MS=${GLOCKE_DISPATCH_INTERVAL_MS:-1000}
+      - GLOCKE_OUTBOX_LEASE_MS=${GLOCKE_OUTBOX_LEASE_MS:-30000}
+      - GLOCKE_FETCH_TIMEOUT_MS=${GLOCKE_FETCH_TIMEOUT_MS:-10000}
+      - GLOCKE_WORKER_STOP_TIMEOUT_MS=${GLOCKE_WORKER_STOP_TIMEOUT_MS:-5000}
+      - GLOCKE_MAX_ATTEMPTS=${GLOCKE_MAX_ATTEMPTS:-8}
+      - GLOCKE_RETRY_BASE_DELAY_MS=${GLOCKE_RETRY_BASE_DELAY_MS:-1000}
+      - GLOCKE_RETRY_MAX_DELAY_MS=${GLOCKE_RETRY_MAX_DELAY_MS:-900000}
       # Substitution var is SCHLUSSEL_ALLOWED_ORIGINS, not ALLOWED_ORIGINS -
       # when tor's docker-compose.yml includes this file alongside kuvert's,
       # both used to read the exact same outer variable name, so one shared
       # .env value silently overrode the other. Container-internal env var
       # name is still plain ALLOWED_ORIGINS below - only the outer name
       # changed.
-      - ALLOWED_ORIGINS=${SCHLUSSEL_ALLOWED_ORIGINS:-https://localhost,https://auth.localhost,https://kuvert.localhost,https://tafel.localhost,https://zettel.localhost}
+      - ALLOWED_ORIGINS=${SCHLUSSEL_ALLOWED_ORIGINS:-https://localhost,https://auth.localhost,https://kuvert.localhost,https://tafel.localhost,https://zettel.localhost,https://glocke.localhost}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
       interval: 30s
@@ -42,7 +55,7 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
       args:
-        VITE_ALLOWED_RETURN_ORIGINS: ${ALLOWED_RETURN_ORIGINS:-https://localhost,https://auth.localhost,https://kuvert.localhost,https://tafel.localhost,https://zettel.localhost}
+        VITE_ALLOWED_RETURN_ORIGINS: ${ALLOWED_RETURN_ORIGINS:-https://localhost,https://auth.localhost,https://kuvert.localhost,https://tafel.localhost,https://zettel.localhost,https://glocke.localhost}
         VITE_DEFAULT_APP_URL: ${DEFAULT_APP_URL:-https://localhost}
     restart: unless-stopped
     networks:

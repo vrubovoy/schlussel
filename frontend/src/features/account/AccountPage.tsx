@@ -611,7 +611,7 @@ function PreferencesCard({ accessToken }: { accessToken: string }) {
 }
 
 const NOTIFICATION_OPTIONS: { key: 'notifyInApp' | 'notifyBrowserPush' | 'notifyTelegram'; label: string; caption: string; available: boolean }[] = [
-  { key: 'notifyInApp', label: 'Уведомления в приложении', caption: 'Центр уведомлений появится вместе с сервисом уведомлений.', available: false },
+  { key: 'notifyInApp', label: 'Уведомления в приложении', caption: 'Показываются в центре уведомлений Glocke.', available: true },
   { key: 'notifyBrowserPush', label: 'Push-уведомления в браузере', caption: 'Потребует разрешения браузера — появится вместе с сервисом уведомлений.', available: false },
   { key: 'notifyTelegram', label: 'Уведомления в Telegram', caption: 'Потребует привязки Telegram-аккаунта — появится вместе с сервисом уведомлений.', available: false },
 ]

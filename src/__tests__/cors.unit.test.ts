@@ -30,4 +30,32 @@ describe('CORS preflight', () => {
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://auth.localhost')
     expect(response.headers.get('Access-Control-Allow-Methods')?.split(/,\s*/)).toContain('PATCH')
   })
+
+  it('allows Glocke theme and profile requests in the backend default', async () => {
+    const previous = process.env['ALLOWED_ORIGINS']
+    delete process.env['ALLOWED_ORIGINS']
+    vi.resetModules()
+
+    try {
+      const [{ Hono }, { corsMiddleware }] = await Promise.all([
+        import('hono'),
+        import('../middleware/cors.js'),
+      ])
+      const app = new Hono()
+      app.use('*', corsMiddleware)
+      app.get('/theme', (c) => c.json({ theme: 'dark' }))
+      app.patch('/auth/profile', (c) => c.json({ ok: true }))
+
+      for (const [path, method] of [['/theme', 'GET'], ['/auth/profile', 'PATCH']]) {
+        const response = await app.request(path, {
+          method,
+          headers: { Origin: 'https://glocke.localhost' },
+        })
+        expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://glocke.localhost')
+      }
+    } finally {
+      if (previous === undefined) delete process.env['ALLOWED_ORIGINS']
+      else process.env['ALLOWED_ORIGINS'] = previous
+    }
+  })
 })

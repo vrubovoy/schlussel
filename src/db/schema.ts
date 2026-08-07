@@ -1,4 +1,5 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core'
+import { sql } from 'drizzle-orm'
+import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(),
@@ -23,10 +24,9 @@ export const users = sqliteTable('users', {
   // yet (every app is still Russian-only), it's stored now so the actual
   // language-switcher rollout has a preference to read from already.
   language: text('language', { enum: ['ru', 'en'] }),
-  // Notification channels - the notification service these gate doesn't
-  // exist yet either, so today these are just stored preferences with no
-  // running consumer. In-app defaults on since it costs nothing to show
-  // once that center exists; push/Telegram default off since both need
+  // Notification channels. Glocke consumes notifyInApp through the signed
+  // internal recipient API; push/Telegram remain stored groundwork. In-app
+  // defaults on, while push/Telegram default off since both need
   // an explicit opt-in step (a browser permission prompt, a Telegram
   // account link) neither of which exists yet to have actually happened.
   notifyInApp: integer('notify_in_app', { mode: 'boolean' }).notNull().default(true),
@@ -114,6 +114,38 @@ export const themePreference = sqliteTable('theme_preference', {
   updatedAt: integer('updated_at').notNull(),
 })
 
+// Producer-side transactional outbox for Glocke. These timestamps remain raw
+// epoch-millisecond integers: Drizzle's SQLite timestamp mode serializes Date
+// values as seconds, which would lose the precision used by leases and retries.
+export const notificationOutbox = sqliteTable('notification_outbox', {
+  id: text('id').primaryKey(),
+  eventType: text('event_type').notNull(),
+  userId: text('user_id').notNull(),
+  payload: text('payload').notNull(),
+  correlationId: text('correlation_id').notNull(),
+  state: text('state', { enum: ['pending', 'inflight', 'delivered', 'permanent'] })
+    .notNull()
+    .default('pending'),
+  createdAt: integer('created_at').notNull(),
+  attempts: integer('attempts').notNull().default(0),
+  nextAttemptAt: integer('next_attempt_at'),
+  leaseId: text('lease_id'),
+  leaseUntil: integer('lease_until'),
+  deliveredAt: integer('delivered_at'),
+  lastError: text('last_error'),
+}, (table) => [
+  check(
+    'notification_outbox_state_check',
+    sql`${table.state} in ('pending', 'inflight', 'delivered', 'permanent')`,
+  ),
+  index('notification_outbox_dispatch_idx').on(
+    table.state,
+    table.nextAttemptAt,
+    table.leaseUntil,
+    table.createdAt,
+  ),
+])
+
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type RefreshToken = typeof refreshTokens.$inferSelect
@@ -121,3 +153,4 @@ export type AuthCode = typeof authCodes.$inferSelect
 export type Invite = typeof invites.$inferSelect
 export type ThemePreference = typeof themePreference.$inferSelect
 export type ConnectedAccount = typeof connectedAccounts.$inferSelect
+export type NotificationOutbox = typeof notificationOutbox.$inferSelect

@@ -60,6 +60,10 @@ describe('openApiDocument', () => {
     expect(openApiDocument.paths?.['/.well-known/jwks.json']).toMatchObject({ get: {} })
   })
 
+  it('does not publish the service-to-service recipient endpoint', () => {
+    expect(Object.keys(openApiDocument.paths ?? {})).not.toContain('/internal/v1/notification-recipients/{userId}')
+  })
+
   it('overrides the /auth server prefix for every public operation', () => {
     for (const operation of [
       openApiDocument.paths?.['/theme']?.get,
