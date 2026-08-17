@@ -13,6 +13,7 @@ const mockChangeUserRole = vi.fn()
 const mockForceLogoutUser = vi.fn()
 const mockDeleteUserAsAdmin = vi.fn()
 const mockRevokeInvite = vi.fn()
+const mockGlockeFetch = vi.fn()
 
 vi.mock('../lib/api', () => ({
   refreshSession: (...args: unknown[]) => mockRefreshSession(...args),
@@ -118,6 +119,9 @@ beforeEach(() => {
   mockForceLogoutUser.mockReset()
   mockDeleteUserAsAdmin.mockReset()
   mockRevokeInvite.mockReset()
+  mockGlockeFetch.mockReset()
+  mockGlockeFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ count: 5 }) })
+  vi.stubGlobal('fetch', mockGlockeFetch)
 })
 
 // Climbs from a text node up the DOM until the ancestor contains at least
@@ -187,6 +191,20 @@ describe('AdminPage — session bootstrap', () => {
 })
 
 describe('AdminPage — access denied for non-admin users', () => {
+  it('keeps the authenticated Glocke bell on the access-denied surface', async () => {
+    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.admin.test')
+    mockRefreshSession.mockResolvedValue({ accessToken: 'denied-token' })
+    mockFetchMe.mockResolvedValue(PLAIN_USER)
+    const { AdminPage } = await setLocation('')
+    render(<AdminPage />)
+
+    await waitFor(() => expect(mockGlockeFetch).toHaveBeenCalledWith(
+      'https://glocke.admin.test/backend/notifications/unread-count',
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer denied-token' }) }),
+    ))
+    vi.unstubAllEnvs()
+  })
+
   it('shows an access-denied indicator and no admin content when the resolved user has role "user"', async () => {
     mockRefreshSession.mockResolvedValue({ accessToken: 'tok' })
     mockFetchMe.mockResolvedValue(PLAIN_USER)
@@ -204,6 +222,37 @@ describe('AdminPage — access denied for non-admin users', () => {
 })
 
 describe('AdminPage — admin content on load', () => {
+  it('passes the authenticated admin page token to the shared Header Glocke request', async () => {
+    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.admin.test')
+    await renderAsAdmin()
+
+    await waitFor(() => expect(mockGlockeFetch).toHaveBeenCalledWith(
+      'https://glocke.admin.test/backend/notifications/unread-count',
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer token-abc' }) }),
+    ))
+    vi.unstubAllEnvs()
+  })
+
+  it('publishes a Header refresh to the page so admin API actions use the replacement token', async () => {
+    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.admin.test')
+    mockRefreshSession
+      .mockResolvedValueOnce({ accessToken: 'expired-token' })
+      .mockResolvedValue({ accessToken: 'fresh-token' })
+    mockFetchMe.mockResolvedValue(ADMIN_USER)
+    mockFetchAdminStats.mockResolvedValue(STATS)
+    mockListAdminUsers.mockResolvedValue(USERS)
+    mockListInvites.mockResolvedValue(INVITES)
+    mockGlockeFetch
+      .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({ error: 'expired' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ count: 5 }) })
+    const { AdminPage } = await setLocation('')
+    render(<AdminPage />)
+
+    await waitFor(() => expect(mockFetchAdminStats).toHaveBeenCalledWith('fresh-token'))
+    expect(mockRefreshSession).toHaveBeenCalledTimes(2)
+    vi.unstubAllEnvs()
+  })
+
   it('fetches stats, users and invites with the access token once bootstrap resolves as admin', async () => {
     await renderAsAdmin()
     expect(mockFetchAdminStats).toHaveBeenCalledWith('token-abc')

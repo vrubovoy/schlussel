@@ -6,6 +6,8 @@ import type { AuthUser } from '../lib/api'
 
 interface AccessDeniedPageProps {
   user: AuthUser
+  accessToken: string
+  onAccessTokenChange: (accessToken: string) => void
   onLogout: () => void
 }
 
@@ -13,10 +15,15 @@ interface AccessDeniedPageProps {
 // them directly - the server-side role check on every actual admin
 // endpoint is the real security boundary, this is just so a regular user
 // sees a clear message instead of a half-broken page.
-export function AccessDeniedPage({ user, onLogout }: AccessDeniedPageProps) {
+export function AccessDeniedPage({ user, accessToken, onAccessTokenChange, onLogout }: AccessDeniedPageProps) {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <Header user={{ name: user.name }} onLogout={onLogout} />
+      <Header
+        user={user}
+        accessToken={accessToken}
+        onAccessTokenChange={onAccessTokenChange}
+        onLogout={onLogout}
+      />
 
       <div style={{
         flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',

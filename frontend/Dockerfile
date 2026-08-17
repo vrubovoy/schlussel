@@ -48,6 +48,8 @@ ARG VITE_ALLOWED_RETURN_ORIGINS=https://localhost,https://auth.localhost,https:/
 ENV VITE_ALLOWED_RETURN_ORIGINS=$VITE_ALLOWED_RETURN_ORIGINS
 ARG VITE_DEFAULT_APP_URL=https://localhost
 ENV VITE_DEFAULT_APP_URL=$VITE_DEFAULT_APP_URL
+ARG VITE_GLOCKE_URL=https://glocke.localhost
+ENV VITE_GLOCKE_URL=$VITE_GLOCKE_URL
 
 COPY frontend ./frontend
 RUN cd frontend && pnpm run build

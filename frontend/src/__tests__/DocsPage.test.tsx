@@ -5,6 +5,7 @@ const mockRefreshSession = vi.fn()
 const mockFetchMe = vi.fn()
 const mockFetchOpenApiSpec = vi.fn()
 const mockSwaggerUIBundle = vi.fn() as ReturnType<typeof vi.fn> & { presets: { apis: Record<string, unknown> } }
+const mockGlockeFetch = vi.fn()
 mockSwaggerUIBundle.presets = { apis: {} }
 
 vi.mock('../lib/api', () => ({
@@ -45,6 +46,9 @@ beforeEach(() => {
   mockFetchOpenApiSpec.mockReset()
   mockSwaggerUIBundle.mockReset()
   mockSwaggerUIBundle.presets = { apis: {} }
+  mockGlockeFetch.mockReset()
+  mockGlockeFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ count: 6 }) })
+  vi.stubGlobal('fetch', mockGlockeFetch)
 })
 
 describe('DocsPage — session bootstrap', () => {
@@ -67,6 +71,20 @@ describe('DocsPage — session bootstrap', () => {
 })
 
 describe('DocsPage — access denied for non-admin users', () => {
+  it('keeps the authenticated Glocke bell on the access-denied surface', async () => {
+    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.docs.test')
+    mockRefreshSession.mockResolvedValue({ accessToken: 'denied-token' })
+    mockFetchMe.mockResolvedValue(PLAIN_USER)
+    const { DocsPage } = await setLocation('')
+    render(<DocsPage />)
+
+    await waitFor(() => expect(mockGlockeFetch).toHaveBeenCalledWith(
+      'https://glocke.docs.test/backend/notifications/unread-count',
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer denied-token' }) }),
+    ))
+    vi.unstubAllEnvs()
+  })
+
   it('shows an access-denied indicator and never fetches the OpenAPI spec when the resolved user has role "user"', async () => {
     mockRefreshSession.mockResolvedValue({ accessToken: 'tok' })
     mockFetchMe.mockResolvedValue(PLAIN_USER)
@@ -80,6 +98,39 @@ describe('DocsPage — access denied for non-admin users', () => {
 })
 
 describe('DocsPage — admin content', () => {
+  it('passes the authenticated docs page token to the shared Header Glocke request', async () => {
+    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.docs.test')
+    mockRefreshSession.mockResolvedValue({ accessToken: 'token-abc' })
+    mockFetchMe.mockResolvedValue(ADMIN_USER)
+    mockFetchOpenApiSpec.mockResolvedValue(OPENAPI_SPEC)
+    const { DocsPage } = await setLocation('')
+    render(<DocsPage />)
+
+    await waitFor(() => expect(mockGlockeFetch).toHaveBeenCalledWith(
+      'https://glocke.docs.test/backend/notifications/unread-count',
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer token-abc' }) }),
+    ))
+    vi.unstubAllEnvs()
+  })
+
+  it('publishes a Header refresh to the page so docs API actions use the replacement token', async () => {
+    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.docs.test')
+    mockRefreshSession
+      .mockResolvedValueOnce({ accessToken: 'expired-token' })
+      .mockResolvedValue({ accessToken: 'fresh-token' })
+    mockFetchMe.mockResolvedValue(ADMIN_USER)
+    mockFetchOpenApiSpec.mockResolvedValue(OPENAPI_SPEC)
+    mockGlockeFetch
+      .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({ error: 'expired' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ count: 6 }) })
+    const { DocsPage } = await setLocation('')
+    render(<DocsPage />)
+
+    await waitFor(() => expect(mockFetchOpenApiSpec).toHaveBeenCalledWith('fresh-token'))
+    expect(mockRefreshSession).toHaveBeenCalledTimes(2)
+    vi.unstubAllEnvs()
+  })
+
   it('fetches the OpenAPI spec with the access token and mounts SwaggerUIBundle', async () => {
     mockRefreshSession.mockResolvedValue({ accessToken: 'token-abc' })
     mockFetchMe.mockResolvedValue(ADMIN_USER)

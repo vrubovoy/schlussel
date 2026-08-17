@@ -1,11 +1,84 @@
-import { Header as SharedHeader, ThemeToggle, type HeaderUser } from '@zudar107/schloss-ui'
+import { useRef } from 'react'
+import {
+  Header as SharedHeader,
+  ThemeToggle,
+  normalizeNotificationOrigin,
+  useUnreadNotifications,
+  type ApiClient,
+  type HeaderUser,
+} from '@zudar107/schloss-ui'
+import { refreshSession } from '../lib/api'
 import { DEFAULT_APP_URL } from '../lib/returnTo'
 
 interface HeaderProps {
-  // Only AccountPage passes these - Login/Register/Logout are pre-auth,
-  // so they render the plain home-link-only header these default to.
-  user?: HeaderUser | null
+  // Login/Register/Error/Help are public, so they render the plain header
+  // these optional authentication props default to.
+  user?: (HeaderUser & { id?: string }) | null
+  accessToken?: string
+  onAccessTokenChange?: (accessToken: string) => void
   onLogout?: () => void
+}
+
+const GLOCKE_ORIGIN = import.meta.env.VITE_GLOCKE_URL || 'http://localhost:5177'
+const NORMALIZED_GLOCKE_ORIGIN = normalizeNotificationOrigin(GLOCKE_ORIGIN)
+
+function unsupportedApiMethod(): Promise<never> {
+  return Promise.reject(new Error('The Header API adapter only supports notification authentication'))
+}
+
+function useHeaderApiClient(
+  accessToken: string | undefined,
+  onAccessTokenChange: ((accessToken: string) => void) | undefined,
+): ApiClient {
+  const tokenRef = useRef<string | null>(accessToken || null)
+  const propTokenRef = useRef(accessToken)
+  const tokenGenerationRef = useRef(0)
+  const onAccessTokenChangeRef = useRef(onAccessTokenChange)
+  const refreshFlightRef = useRef<Promise<string | null> | null>(null)
+  const clientRef = useRef<ApiClient | null>(null)
+  onAccessTokenChangeRef.current = onAccessTokenChange
+
+  if (propTokenRef.current !== accessToken) {
+    propTokenRef.current = accessToken
+    tokenRef.current = accessToken || null
+    tokenGenerationRef.current += 1
+  }
+
+  if (!clientRef.current) {
+    clientRef.current = {
+      setAccessToken: (token) => {
+        if (tokenRef.current === token) return
+        tokenRef.current = token
+        tokenGenerationRef.current += 1
+      },
+      getAccessToken: () => tokenRef.current,
+      refreshAccessToken: () => {
+        if (refreshFlightRef.current) return refreshFlightRef.current
+
+        const expiredToken = tokenRef.current
+        const refreshGeneration = tokenGenerationRef.current
+        const refresh = refreshSession()
+          .then(({ accessToken: refreshedToken }) => {
+            if (tokenGenerationRef.current !== refreshGeneration || tokenRef.current !== expiredToken) return null
+            tokenRef.current = refreshedToken
+            onAccessTokenChangeRef.current?.(refreshedToken)
+            return refreshedToken
+          })
+          .catch(() => null)
+          .finally(() => {
+            if (refreshFlightRef.current === refresh) refreshFlightRef.current = null
+          })
+        refreshFlightRef.current = refresh
+        return refresh
+      },
+      get: unsupportedApiMethod,
+      post: unsupportedApiMethod,
+      put: unsupportedApiMethod,
+      delete: unsupportedApiMethod,
+    }
+  }
+
+  return clientRef.current
 }
 
 // The home link leads to schloss (schlussel has no home page of its own),
@@ -15,7 +88,14 @@ interface HeaderProps {
 // wired here - this IS the settings destination every other service's
 // header points at, so there is nowhere further for its own gear icon to
 // go.
-export function Header({ user, onLogout }: HeaderProps = {}) {
+export function Header({ user, accessToken, onAccessTokenChange, onLogout }: HeaderProps = {}) {
+  const apiClient = useHeaderApiClient(accessToken, onAccessTokenChange)
+  const notificationState = useUnreadNotifications({
+    glockeOrigin: GLOCKE_ORIGIN,
+    userId: accessToken && user ? user.id ?? user.name : null,
+    apiClient,
+  })
+
   return (
     <SharedHeader
       logo={
@@ -29,6 +109,9 @@ export function Header({ user, onLogout }: HeaderProps = {}) {
       user={user}
       onLogout={onLogout}
       rightSlot={<ThemeToggle />}
+      notifications={user && accessToken && NORMALIZED_GLOCKE_ORIGIN
+        ? { href: `${NORMALIZED_GLOCKE_ORIGIN}/notifications`, state: notificationState }
+        : undefined}
     />
   )
 }

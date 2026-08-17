@@ -6,6 +6,7 @@ interface UseSchlusselSessionResult {
   checking: boolean
   user: AuthUser | null
   accessToken: string
+  setAccessToken: (accessToken: string) => void
   setUser: (user: AuthUser) => void
 }
 
@@ -80,5 +81,5 @@ export function useSchlusselSession(pagePath: string): UseSchlusselSessionResult
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pagePath])
 
-  return { checking, user, accessToken, setUser }
+  return { checking, user, accessToken, setAccessToken, setUser }
 }
