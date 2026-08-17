@@ -19,7 +19,7 @@ function formatDate(iso: string): string {
 }
 
 export function AdminPage() {
-  const { checking, user, accessToken } = useSchlusselSession('/admin')
+  const { checking, user, accessToken, setAccessToken } = useSchlusselSession('/admin')
 
   async function handleLogout() {
     window.location.href = '/logout'
@@ -30,12 +30,22 @@ export function AdminPage() {
   }
 
   if (user.role !== 'admin') {
-    return <AccessDeniedPage user={user} onLogout={handleLogout} />
+    return <AccessDeniedPage
+      user={user}
+      accessToken={accessToken}
+      onAccessTokenChange={setAccessToken}
+      onLogout={handleLogout}
+    />
   }
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <Header user={{ name: user.name }} onLogout={handleLogout} />
+      <Header
+        user={user}
+        accessToken={accessToken}
+        onAccessTokenChange={setAccessToken}
+        onLogout={handleLogout}
+      />
 
       <div style={{ flex: 1, background: 'var(--bg-base)', padding: '2rem 1rem' }}>
         <div style={{ maxWidth: 760, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>

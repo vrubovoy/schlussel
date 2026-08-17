@@ -68,6 +68,10 @@ function expectFooter() {
   expect(githubLink).toBeTruthy()
 }
 
+function expectNoGlockeRequest() {
+  expect(mockFetch.mock.calls.some(([url]) => String(url).includes('/notifications/unread-count'))).toBe(false)
+}
+
 describe('Header + Footer — LoginPage (valid return_to/code_challenge)', () => {
   it('renders a Header link to VITE_DEFAULT_APP_URL when it is stubbed', async () => {
     vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
@@ -77,6 +81,7 @@ describe('Header + Footer — LoginPage (valid return_to/code_challenge)', () =>
 
     await screen.findByPlaceholderText(/example/i)
     expectHeaderLink('https://schloss.example.com')
+    expectNoGlockeRequest()
     vi.unstubAllEnvs()
   })
 
@@ -123,6 +128,7 @@ describe('Header + Footer — RegisterPage (valid return_to/code_challenge)', ()
     render(<RegisterPage />)
 
     expectHeaderLink('https://schloss.example.com')
+    expectNoGlockeRequest()
     vi.unstubAllEnvs()
   })
 
@@ -149,6 +155,7 @@ describe('Header + Footer — ErrorPage (invalid return_to)', () => {
     expect(screen.getByText(/небезопасный адрес возврата/i)).toBeInTheDocument()
     expectHeaderLink('https://schloss.example.com')
     expectFooter()
+    expectNoGlockeRequest()
     vi.unstubAllEnvs()
   })
 

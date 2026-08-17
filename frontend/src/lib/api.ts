@@ -178,8 +178,16 @@ async function authed<T>(method: string, path: string, accessToken: string, body
 // every consumer app's own background refresh (see e.g. kuvert's
 // useAuthProvider), just without the codeChallenge branch since this
 // never has to hand a token across an origin boundary.
+let refreshSessionFlight: Promise<RefreshResponse> | null = null
+
 export function refreshSession(): Promise<RefreshResponse> {
-  return post<RefreshResponse>('/refresh', {})
+  if (refreshSessionFlight) return refreshSessionFlight
+
+  const refresh = post<RefreshResponse>('/refresh', {}).finally(() => {
+    if (refreshSessionFlight === refresh) refreshSessionFlight = null
+  })
+  refreshSessionFlight = refresh
+  return refresh
 }
 
 export function fetchMe(accessToken: string): Promise<AuthUser> {

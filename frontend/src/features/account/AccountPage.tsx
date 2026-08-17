@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   KeyRound, Trash2, User as UserIcon, Monitor, ShieldCheck, Globe, Bell, Link2, Lock, Download,
   Send, Camera,
@@ -114,7 +114,12 @@ export function AccountPage() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <Header user={{ name: user.name }} onLogout={handleLogout} />
+      <Header
+        user={user}
+        accessToken={accessToken}
+        onAccessTokenChange={setAccessTokenState}
+        onLogout={handleLogout}
+      />
 
       <div style={{ flex: 1, background: 'var(--bg-base)', padding: '2rem 1rem' }}>
         <div style={{ maxWidth: 480, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -146,7 +151,7 @@ export function AccountPage() {
           <ConnectedAccountsCard accessToken={accessToken} />
           <SessionsCard accessToken={accessToken} />
           <PrivacyCard />
-          <DataExportCard accessToken={accessToken} />
+          <DataExportCard accessToken={accessToken} onAccessTokenChange={setAccessTokenState} />
           <DangerZoneCard accessToken={accessToken} />
         </div>
       </div>
@@ -742,7 +747,13 @@ function PrivacyCard() {
   )
 }
 
-function DataExportCard({ accessToken }: { accessToken: string }) {
+function DataExportCard({
+  accessToken,
+  onAccessTokenChange,
+}: {
+  accessToken: string
+  onAccessTokenChange: (accessToken: string) => void
+}) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [job, setJob] = useState<ExportJob | null>(null)
@@ -750,26 +761,42 @@ function DataExportCard({ accessToken }: { accessToken: string }) {
   const [jobError, setJobError] = useState('')
   const [pollingStopped, setPollingStopped] = useState(false)
   const exportTokenRef = useRef(accessToken)
+  const exportPropTokenRef = useRef(accessToken)
+  const exportTokenGenerationRef = useRef(0)
 
-  useEffect(() => {
+  if (exportPropTokenRef.current !== accessToken) {
+    exportPropTokenRef.current = accessToken
     exportTokenRef.current = accessToken
-  }, [accessToken])
+    exportTokenGenerationRef.current += 1
+  }
 
-  async function withExportAuth<T>(request: (token: string) => Promise<T>): Promise<T> {
+  const withExportAuth = useCallback(async <T,>(request: (token: string) => Promise<T>): Promise<T> => {
+    const requestToken = exportTokenRef.current
     try {
-      return await request(exportTokenRef.current)
+      return await request(requestToken)
     } catch (requestError) {
       if (!(requestError instanceof ApiError) || requestError.status !== 401) throw requestError
       try {
+        if (exportTokenRef.current !== requestToken) return await request(exportTokenRef.current)
+
+        const expiredToken = exportTokenRef.current
+        const refreshGeneration = exportTokenGenerationRef.current
         const refreshed = await refreshSession()
+        if (
+          exportTokenGenerationRef.current !== refreshGeneration
+          || exportTokenRef.current !== expiredToken
+        ) {
+          return await request(exportTokenRef.current)
+        }
         exportTokenRef.current = refreshed.accessToken
+        onAccessTokenChange(refreshed.accessToken)
         return await request(refreshed.accessToken)
       } catch (refreshError) {
         setPollingStopped(true)
         throw refreshError
       }
     }
-  }
+  }, [onAccessTokenChange])
 
   useEffect(() => {
     if (!job || pollingStopped || !['queued', 'running'].includes(job.status)) return
@@ -784,7 +811,7 @@ function DataExportCard({ accessToken }: { accessToken: string }) {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [job, pollingStopped])
+  }, [job, pollingStopped, withExportAuth])
 
   async function handleExport() {
     setError('')

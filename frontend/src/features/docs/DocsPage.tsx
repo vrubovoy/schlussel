@@ -12,7 +12,7 @@ import 'swagger-ui-dist/swagger-ui.css'
 // this page already holds one from useSchlusselSession, and threads it
 // through to both the initial spec fetch and every "Try it out" call.
 export function DocsPage() {
-  const { checking, user, accessToken } = useSchlusselSession('/docs')
+  const { checking, user, accessToken, setAccessToken } = useSchlusselSession('/docs')
   const containerRef = useRef<HTMLDivElement>(null)
   const [loadError, setLoadError] = useState('')
 
@@ -59,12 +59,22 @@ export function DocsPage() {
   }
 
   if (user.role !== 'admin') {
-    return <AccessDeniedPage user={user} onLogout={handleLogout} />
+    return <AccessDeniedPage
+      user={user}
+      accessToken={accessToken}
+      onAccessTokenChange={setAccessToken}
+      onLogout={handleLogout}
+    />
   }
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <Header user={{ name: user.name }} onLogout={handleLogout} />
+      <Header
+        user={user}
+        accessToken={accessToken}
+        onAccessTokenChange={setAccessToken}
+        onLogout={handleLogout}
+      />
 
       <div style={{ padding: '0.625rem 1rem', borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
         <a href="/admin" style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', textDecoration: 'none' }}>

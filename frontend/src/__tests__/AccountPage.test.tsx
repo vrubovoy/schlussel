@@ -22,6 +22,7 @@ const mockGetExportJob = vi.fn()
 const mockRetryExportJob = vi.fn()
 const mockCancelExportJob = vi.fn()
 const mockDownloadExportJob = vi.fn()
+const mockGlockeFetch = vi.fn()
 
 vi.mock('../lib/api', () => ({
   refreshSession: (...args: unknown[]) => mockRefreshSession(...args),
@@ -105,6 +106,9 @@ beforeEach(() => {
   mockRetryExportJob.mockReset()
   mockCancelExportJob.mockReset()
   mockDownloadExportJob.mockReset()
+  mockGlockeFetch.mockReset()
+  mockGlockeFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ count: 4 }) })
+  vi.stubGlobal('fetch', mockGlockeFetch)
   // Default: an empty sessions list, so tests that don't care about the
   // sessions card (most of them) don't have to stub this themselves.
   mockListSessions.mockResolvedValue([])
@@ -241,6 +245,36 @@ describe('AccountPage — redirect to login (no valid session)', () => {
 })
 
 describe('AccountPage — rendered content', () => {
+  it('passes the authenticated page token to the shared Header Glocke request', async () => {
+    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.account.test')
+    await renderLoggedIn()
+
+    await waitFor(() => expect(mockGlockeFetch).toHaveBeenCalled())
+    expect(mockGlockeFetch).toHaveBeenCalledWith(
+      'https://glocke.account.test/backend/notifications/unread-count',
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer token-abc' }) }),
+    )
+    vi.unstubAllEnvs()
+  })
+
+  it('publishes a Header refresh to the page so account API actions use the replacement token', async () => {
+    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.account.test')
+    mockRefreshSession
+      .mockResolvedValueOnce({ accessToken: 'expired-token' })
+      .mockResolvedValue({ accessToken: 'fresh-token' })
+    mockFetchMe.mockResolvedValue(USER)
+    mockGlockeFetch
+      .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({ error: 'expired' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ count: 4 }) })
+    const { AccountPage } = await setLocation('')
+    render(<AccountPage />)
+
+    await screen.findByText('Настройки аккаунта')
+    await waitFor(() => expect(mockListSessions).toHaveBeenCalledWith('fresh-token'))
+    expect(mockRefreshSession).toHaveBeenCalledTimes(2)
+    vi.unstubAllEnvs()
+  })
+
   it('shows the heading and the user name and email', async () => {
     await renderLoggedIn()
     expect(screen.getByText('Настройки аккаунта')).toBeInTheDocument()
@@ -307,11 +341,12 @@ describe('AccountPage — back link', () => {
 
   // The page chrome always renders its own external links regardless of
   // return_to - the header's home logo (href === window.location.origin)
-  // and the footer's GitHub icon - neither is the "back" link under test
-  // here, so both are excluded from this count.
+  // the authenticated notification bell, and the footer's GitHub icon - none
+  // is the "back" link under test here, so all are excluded from this count.
   function externalNonChromeLinks(): Element[] {
     return Array.from(document.querySelectorAll('a[href^="http"]')).filter((a) => {
       if (a.getAttribute('href') === window.location.origin) return false
+      if (a.getAttribute('aria-label')?.startsWith('Уведомления:')) return false
       if (a.getAttribute('aria-label') === 'GitHub') return false
       return true
     })

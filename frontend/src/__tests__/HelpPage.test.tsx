@@ -1,11 +1,20 @@
-import { describe, it, expect } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { HelpPage } from '../features/help/HelpPage'
 
 describe('HelpPage', () => {
+  const mockFetch = vi.fn()
+
+  beforeEach(() => {
+    mockFetch.mockReset()
+    vi.stubGlobal('fetch', mockFetch)
+  })
+
   it('renders the guide heading with no login/session check', () => {
     render(<HelpPage />)
     expect(screen.getByText('Как пользоваться Schlüssel')).toBeInTheDocument()
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(document.querySelector('a[href*="glocke"]')).not.toBeInTheDocument()
   })
 
   it('renders a heading for every documented section', () => {

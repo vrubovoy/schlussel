@@ -5,6 +5,13 @@ Brief log of notable changes, grouped by theme — not a full commit history
 fit best; add a new section if none fits.
 
 ## Notifications
+- Added the shared Glocke notification bell and unread-count lifecycle to
+  authenticated account, admin, docs, and access-denied headers. It reuses each
+  page's in-memory token, publishes silently refreshed tokens back to page-owned
+  state without redirecting, generation-fences late refreshes, and stays absent from
+  login, registration, error, and public help pages. Same-origin refreshes are
+  globally single-flight to protect the rotating session cookie. The bell href uses
+  shared origin normalization and is omitted for invalid or insecure configuration.
 - Added a transactional password-change outbox and lease-based Glocke
   dispatcher using the shared v1 envelope, canonical HMAC signing, response
   classification, `Retry-After`, and backoff helpers from `schloss-server-kit`.

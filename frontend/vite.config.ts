@@ -9,6 +9,12 @@ const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url),
 
 export default defineConfig({
   plugins: [tailwindcss(), react()],
+  resolve: {
+    dedupe: ['react', 'react-dom'],
+  },
+  ssr: {
+    noExternal: ['@zudar107/schloss-ui'],
+  },
   server: {
     port: 4001,
     proxy: {

@@ -60,4 +60,12 @@ describe('default frontend return configuration', () => {
     const defaultApp = compose.match(/VITE_DEFAULT_APP_URL:\s*\$\{DEFAULT_APP_URL:-([^}]+)\}/)?.[1]
     expect(defaultApp).toBe('https://localhost')
   })
+
+  it('passes the Glocke frontend URL through Compose and declares it as a Docker build argument', () => {
+    const composeGlockeUrl = compose.match(/VITE_GLOCKE_URL:\s*\$\{GLOCKE_URL:-([^}]+)\}/)?.[1]
+    const dockerGlockeUrl = frontendDockerfile.match(/ARG VITE_GLOCKE_URL=([^\n]+)/)?.[1]
+
+    expect(composeGlockeUrl).toBe('https://glocke.localhost')
+    expect(dockerGlockeUrl).toBe('https://glocke.localhost')
+  })
 })
