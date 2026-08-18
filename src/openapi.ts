@@ -326,7 +326,7 @@ registry.registerPath({
   method: 'patch',
   path: '/profile',
   summary: 'Update the current user\'s profile settings',
-  description: 'Only the fields present in the request body are changed. Timezone must be a valid IANA zone; timezone/date format/week start are included in newly issued access tokens and consumed by platform apps. Language is stored for the ongoing i18n rollout. Glocke consumes notifyInApp through a separately authenticated internal API; browser push and Telegram remain future channels. sessionTimeoutMinutes can only shorten, never extend past the platform default, how long a newly-established session lasts.',
+  description: 'Only the fields present in the request body are changed. Timezone must be a valid IANA zone; timezone/date format/week start are included in newly issued access tokens and consumed by platform apps. Language is stored for the ongoing i18n rollout. Glocke consumes notifyInApp and notifyBrowserPush through a separately authenticated internal API; notifyBrowserPush is a global switch only - it does not itself register a browser, that happens in Glocke. Telegram remains a future channel. sessionTimeoutMinutes can only shorten, never extend past the platform default, how long a newly-established session lasts.',
   security: [{ bearerAuth: [] }],
   request: { body: { content: { 'application/json': { schema: profileUpdateSchema } } } },
   responses: {

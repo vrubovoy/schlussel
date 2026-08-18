@@ -1027,6 +1027,145 @@ describe('AccountPage — NotificationsCard', () => {
   })
 })
 
+// ── Browser Push delivery (issue #202, Schlüssel side) ──────────────────────
+//
+// notifyBrowserPush stops being a dead "coming soon" checkbox: it becomes a
+// live global switch, wired to a Glocke-settings link when on, explanatory
+// copy when off, and (separately) the pre-existing toggle() unhandled-
+// rejection bug gets fixed. Written from the spec, before any of this
+// exists in AccountPage.tsx.
+describe('AccountPage — NotificationsCard browser push (rework + bugfix)', () => {
+  it('gives the browser-push option a caption that no longer says it "appears with the notification service" (the old dead/coming-soon caption)', async () => {
+    await renderLoggedIn()
+    await screen.findAllByRole('checkbox')
+
+    const pushCheckbox = screen.getByRole('checkbox', { name: /push/i })
+    const label = pushCheckbox.closest('label') as HTMLElement
+    expect(label.textContent ?? '').not.toMatch(/появится вместе с сервисом уведомлений/i)
+  })
+
+  it('mentions Glocke in the browser-push caption, since enabling it requires registering the browser there', async () => {
+    await renderLoggedIn()
+    await screen.findAllByRole('checkbox')
+
+    const pushCheckbox = screen.getByRole('checkbox', { name: /push/i })
+    const label = pushCheckbox.closest('label') as HTMLElement
+    expect(label.textContent ?? '').toMatch(/glocke/i)
+  })
+
+  it('shows a link to Glocke\'s browser-push settings when notifyBrowserPush is already enabled on load', async () => {
+    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.account.test')
+    mockFetchProfile.mockResolvedValue({ ...PROFILE, notifyBrowserPush: true })
+    await renderLoggedIn()
+    await screen.findAllByRole('checkbox')
+
+    const link = document.querySelector('a[href="https://glocke.account.test/settings"]')
+    expect(link).toBeTruthy()
+    vi.unstubAllEnvs()
+  })
+
+  it('shows no Glocke-settings link while notifyBrowserPush is disabled', async () => {
+    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.account.test')
+    await renderLoggedIn() // PROFILE fixture default: notifyBrowserPush: false
+    await screen.findAllByRole('checkbox')
+
+    expect(document.querySelector('a[href$="/settings"]')).toBeNull()
+    vi.unstubAllEnvs()
+  })
+
+  it('turning the browser-push checkbox on triggers updateProfile and then shows the Glocke-settings link once it resolves', async () => {
+    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.account.test')
+    const { user } = await renderLoggedIn()
+    mockUpdateProfile.mockResolvedValue({ ...PROFILE, notifyBrowserPush: true })
+    await screen.findAllByRole('checkbox')
+
+    const pushCheckbox = screen.getByRole('checkbox', { name: /push/i })
+    expect(pushCheckbox).not.toBeChecked()
+    await user.click(pushCheckbox)
+
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalledWith(
+      'token-abc',
+      expect.objectContaining({ notifyBrowserPush: true }),
+    ))
+    await waitFor(() => {
+      expect(document.querySelector('a[href="https://glocke.account.test/settings"]')).toBeTruthy()
+    })
+    vi.unstubAllEnvs()
+  })
+
+  it('turning the browser-push checkbox off shows copy explaining that already-registered browsers stay registered but stop receiving delivery', async () => {
+    mockFetchProfile.mockResolvedValue({ ...PROFILE, notifyBrowserPush: true })
+    const { user } = await renderLoggedIn()
+    mockUpdateProfile.mockResolvedValue({ ...PROFILE, notifyBrowserPush: false })
+    await screen.findAllByRole('checkbox')
+
+    const pushCheckbox = screen.getByRole('checkbox', { name: /push/i })
+    expect(pushCheckbox).toBeChecked()
+    await user.click(pushCheckbox)
+
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalledWith(
+      'token-abc',
+      expect.objectContaining({ notifyBrowserPush: false }),
+    ))
+    await waitFor(() => {
+      const text = document.body.textContent ?? ''
+      // Loose on exact wording (per spec, behavior/content over exact
+      // strings), but the copy must convey both halves of "subscriptions
+      // are preserved, delivery stops" - registration surviving, and
+      // delivery/receiving being what actually stops.
+      expect(text).toMatch(/зарегистрирован/i)
+      expect(text).toMatch(/перестан|прекращ|останов/i)
+    })
+  })
+
+  it('a failed browser-push save surfaces a visible error message (the unhandled-rejection bugfix)', async () => {
+    mockFetchProfile.mockResolvedValue({ ...PROFILE, notifyBrowserPush: true })
+    const { user } = await renderLoggedIn()
+    mockUpdateProfile.mockRejectedValue(new Error('boom'))
+    await screen.findAllByRole('checkbox')
+
+    const pushCheckbox = screen.getByRole('checkbox', { name: /push/i })
+    await user.click(pushCheckbox)
+
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalled())
+    await waitFor(() => {
+      const text = document.body.textContent ?? ''
+      expect(text).toMatch(/не удалось|ошибк/i)
+    })
+    // The page must still be alive - a thrown-out-of-toggle() unhandled
+    // rejection would not itself unmount React, but this pins down that
+    // the failure path is handled gracefully rather than just swallowed.
+    expect(screen.getByText('Настройки аккаунта')).toBeInTheDocument()
+  })
+
+  it('a failed browser-push save reverts the checkbox to its prior (checked) state rather than leaving it showing the unsaved value', async () => {
+    mockFetchProfile.mockResolvedValue({ ...PROFILE, notifyBrowserPush: true })
+    const { user } = await renderLoggedIn()
+    mockUpdateProfile.mockRejectedValue(new Error('boom'))
+    await screen.findAllByRole('checkbox')
+
+    const pushCheckbox = screen.getByRole('checkbox', { name: /push/i })
+    expect(pushCheckbox).toBeChecked()
+    await user.click(pushCheckbox)
+
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalled())
+    await waitFor(() => expect(pushCheckbox).toBeChecked())
+  })
+
+  it('a failed browser-push save does not leave the checkbox disabled/stuck in a saving state', async () => {
+    mockFetchProfile.mockResolvedValue({ ...PROFILE, notifyBrowserPush: true })
+    const { user } = await renderLoggedIn()
+    mockUpdateProfile.mockRejectedValue(new Error('boom'))
+    await screen.findAllByRole('checkbox')
+
+    const pushCheckbox = screen.getByRole('checkbox', { name: /push/i })
+    await user.click(pushCheckbox)
+
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalled())
+    await waitFor(() => expect(pushCheckbox).not.toBeDisabled())
+  })
+})
+
 describe('AccountPage — ConnectedAccountsCard', () => {
   it('calls listConnectedAccounts with the access token on mount', async () => {
     await renderLoggedIn()
@@ -1070,6 +1209,50 @@ describe('AccountPage — PrivacyCard', () => {
       )
       expect(controls.length).toBe(0)
     }
+  })
+
+  // Browser Push delivery (issue #202): enabling browser push means Glocke
+  // registers the browser with the vendor's own push infrastructure
+  // (Google/Mozilla/Apple/Microsoft) - a real third-party transport, just
+  // not a tracking one, so it's disclosed as its own bullet, factually
+  // distinct from the existing "no third-party analytics/ad tracking" line.
+  it('discloses that enabling browser push uses the browser vendor\'s own push infrastructure', async () => {
+    await renderLoggedIn()
+    const text = document.body.textContent ?? ''
+    expect(text).toMatch(/push/i)
+    expect(text).toMatch(/google|mozilla|apple|microsoft/i)
+  })
+
+  it('keeps the browser-vendor-push disclosure as a separate bullet from the existing no-third-party-analytics/ad-tracking bullet', async () => {
+    await renderLoggedIn()
+    const heading = await screen.findByText(/приватность/i)
+    const card = (heading.closest('.card') ?? heading.closest('section') ?? document.body) as HTMLElement
+    const items = within(card).getAllByRole('listitem')
+
+    const pushItems = items.filter((li) => {
+      const t = li.textContent ?? ''
+      return /push/i.test(t) && /google|mozilla|apple|microsoft/i.test(t)
+    })
+    const analyticsItems = items.filter((li) => /аналитическ|рекламн/i.test(li.textContent ?? ''))
+
+    expect(pushItems.length).toBeGreaterThanOrEqual(1)
+    expect(analyticsItems.length).toBeGreaterThanOrEqual(1)
+    // Distinct <li> nodes, not the same bullet text carrying both claims.
+    expect(pushItems.some((li) => analyticsItems.includes(li))).toBe(false)
+  })
+
+  it('does not claim browser push is third-party analytics/ad tracking (it is a transport, not a tracker)', async () => {
+    await renderLoggedIn()
+    const heading = await screen.findByText(/приватность/i)
+    const card = (heading.closest('.card') ?? heading.closest('section') ?? document.body) as HTMLElement
+    const items = within(card).getAllByRole('listitem')
+
+    const pushItem = items.find((li) => {
+      const t = li.textContent ?? ''
+      return /push/i.test(t) && /google|mozilla|apple|microsoft/i.test(t)
+    })
+    expect(pushItem).toBeTruthy()
+    expect(pushItem!.textContent ?? '').not.toMatch(/аналитическ|рекламн|трекинг/i)
   })
 })
 

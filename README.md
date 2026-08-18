@@ -98,9 +98,13 @@ to be upfront about which parts are real today and which are groundwork:
   week start are included in newly issued access tokens and used by Kuvert, Tafel, and
   Zettel for their date/calendar formatting. Timezones must be valid IANA zone names.
   Language is stored for the ongoing i18n rollout but is not consumed by the apps yet.
-- **Notification toggles** are stored here. Glocke reads the in-app preference
-  through a separately HMAC-authenticated internal endpoint; browser push and
-  Telegram remain future channels.
+- **Notification toggles** are stored here. Glocke reads both the in-app and
+  the global browser-push preference through a separately HMAC-authenticated
+  internal endpoint. `notifyBrowserPush` is only a global on/off switch —
+  registering an actual browser for delivery happens in Glocke, which the
+  Account page links to once the switch is on; turning it off stops delivery
+  but leaves already-registered browsers registered. Telegram remains a
+  future channel.
 - **Connected accounts** (`GET /connected-accounts`, `DELETE /connected-accounts/:id`)
   is always empty in practice — Telegram is the only planned provider and there's no bot
   yet to hand a connect flow off to.

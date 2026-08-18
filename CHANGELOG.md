@@ -18,6 +18,14 @@ fit best; add a new section if none fits.
 - Added the separately authenticated internal Glocke recipient-preference API;
   it returns only the active user ID, in-app preference, language, and timezone
   and is intentionally excluded from the public OpenAPI document.
+- Extended the internal Glocke recipient-preference API with the global
+  `notifyBrowserPush` switch, and reworked the Account page's browser-push
+  toggle: it now links to Glocke's browser-push settings once enabled,
+  explains that disabling stops delivery without deregistering browsers, and
+  fixed a failed-save unhandled promise rejection so it now surfaces a
+  visible error and reverts the checkbox. Privacy copy discloses the
+  browser vendor's own push infrastructure as a non-tracking third-party
+  transport.
 
 ## Data export
 - Retained the synchronous Schlüssel-only `GET /export` JSON response and added
