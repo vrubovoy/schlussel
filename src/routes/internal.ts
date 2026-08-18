@@ -36,6 +36,7 @@ export function createInternalRouter(options: InternalRouterOptions) {
     const user = await db.select({
       userId: users.id,
       notifyInApp: users.notifyInApp,
+      notifyBrowserPush: users.notifyBrowserPush,
       language: users.language,
       timezone: users.timezone,
     }).from(users).where(eq(users.id, c.req.param('userId'))).get()

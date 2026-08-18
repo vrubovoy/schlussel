@@ -616,19 +616,28 @@ function PreferencesCard({ accessToken }: { accessToken: string }) {
   )
 }
 
-const NOTIFICATION_OPTIONS: { key: 'notifyInApp' | 'notifyBrowserPush' | 'notifyTelegram'; label: string; caption: string; available: boolean }[] = [
-  { key: 'notifyInApp', label: 'Уведомления в приложении', caption: 'Показываются в центре уведомлений Glocke.', available: true },
-  { key: 'notifyBrowserPush', label: 'Push-уведомления в браузере', caption: 'Потребует разрешения браузера — появится вместе с сервисом уведомлений.', available: false },
-  { key: 'notifyTelegram', label: 'Уведомления в Telegram', caption: 'Потребует привязки Telegram-аккаунта — появится вместе с сервисом уведомлений.', available: false },
+const NOTIFICATION_OPTIONS: { key: 'notifyInApp' | 'notifyBrowserPush' | 'notifyTelegram'; label: string; caption: string }[] = [
+  { key: 'notifyInApp', label: 'Уведомления в приложении', caption: 'Показываются в центре уведомлений Glocke.' },
+  { key: 'notifyBrowserPush', label: 'Push-уведомления в браузере', caption: 'Глобальный переключатель. Чтобы получать push на этом устройстве, включи здесь и зарегистрируй браузер в Glocke.' },
+  { key: 'notifyTelegram', label: 'Уведомления в Telegram', caption: 'Потребует привязки Telegram-аккаунта — появится вместе с сервисом уведомлений.' },
 ]
 
-// Every toggle here is a stored preference with no running consumer yet -
-// see the schema.ts comment on these columns for why that's the honest
-// state of things right now, and NOTIFICATION_OPTIONS' captions say so
-// in the UI too rather than implying these already do something.
+// Glocke owns browser registration/delivery entirely - this file only
+// flips the global intent flag Glocke's internal recipient contract reads
+// (see schlussel's routes/internal.ts). Same resolution pattern as
+// Header.tsx's own GLOCKE_ORIGIN constant.
+const GLOCKE_ORIGIN = import.meta.env.VITE_GLOCKE_URL || 'http://localhost:5177'
+
+// notifyTelegram is still a stored preference with no running consumer yet
+// (see the schema.ts comment on that column) - its caption says so rather
+// than implying it already does something. notifyBrowserPush now has a
+// real consumer (Glocke's push delivery), which is why only it grew the
+// settings link/off-state copy below.
 function NotificationsCard({ accessToken }: { accessToken: string }) {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [saving, setSaving] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const [justDisabledPush, setJustDisabledPush] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -638,9 +647,13 @@ function NotificationsCard({ accessToken }: { accessToken: string }) {
 
   async function toggle(key: 'notifyInApp' | 'notifyBrowserPush' | 'notifyTelegram', value: boolean) {
     setSaving(key)
+    setError('')
     try {
       const updated = await updateProfile(accessToken, { [key]: value })
       setProfile(updated)
+      if (key === 'notifyBrowserPush') setJustDisabledPush(!value)
+    } catch {
+      setError('Не удалось сохранить настройку уведомлений. Попробуй ещё раз.')
     } finally {
       setSaving(null)
     }
@@ -657,21 +670,37 @@ function NotificationsCard({ accessToken }: { accessToken: string }) {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         {NOTIFICATION_OPTIONS.map((opt) => (
-          <label key={opt.key} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={profile[opt.key]}
-              disabled={saving === opt.key}
-              onChange={(e) => void toggle(opt.key, e.target.checked)}
-              style={{ marginTop: 3, flexShrink: 0 }}
-            />
-            <span>
-              <span style={{ display: 'block', fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 500 }}>{opt.label}</span>
-              <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{opt.caption}</span>
-            </span>
-          </label>
+          <div key={opt.key}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={profile[opt.key]}
+                disabled={saving === opt.key}
+                onChange={(e) => void toggle(opt.key, e.target.checked)}
+                style={{ marginTop: 3, flexShrink: 0 }}
+              />
+              <span>
+                <span style={{ display: 'block', fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 500 }}>{opt.label}</span>
+                <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{opt.caption}</span>
+              </span>
+            </label>
+            {opt.key === 'notifyBrowserPush' && profile.notifyBrowserPush && (
+              <a
+                href={`${GLOCKE_ORIGIN}/settings`}
+                style={{ display: 'inline-block', marginTop: '0.5rem', marginLeft: '1.875rem', fontSize: '0.8125rem' }}
+              >
+                Настроить браузер в Glocke →
+              </a>
+            )}
+            {opt.key === 'notifyBrowserPush' && justDisabledPush && !profile.notifyBrowserPush && (
+              <p style={{ margin: '0.5rem 0 0 1.875rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Ранее зарегистрированные браузеры остаются зарегистрированными в Glocke, но перестанут получать push, пока переключатель выключен.
+              </p>
+            )}
+          </div>
         ))}
       </div>
+      {error && <p style={{ margin: '1rem 0 0', fontSize: '0.8125rem', color: 'var(--color-danger, #dc2626)' }}>{error}</p>}
     </div>
   )
 }
@@ -742,6 +771,7 @@ function PrivacyCard() {
         <li>Твои счета, бюджет, задачи и заметки видны только тебе — другие пользователи этой платформы не имеют к ним доступа.</li>
         <li>Все данные хранятся на одном сервере, которым управляет администратор платформы — сторонние облака и сервисы не используются.</li>
         <li>Нет стороннего аналитического или рекламного трекинга.</li>
+        <li>Если включить push-уведомления в браузере, доставка идёт через инфраструктуру push-сервиса твоего браузера (Google, Mozilla, Apple или Microsoft) — это сторонний способ доставки сообщений, а не аналитика и не реклама.</li>
       </ul>
     </div>
   )

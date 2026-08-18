@@ -115,9 +115,44 @@ describe('GET /internal/v1/notification-recipients/:userId', () => {
     expect(await response.json()).toEqual({
       userId,
       notifyInApp: false,
+      notifyBrowserPush: false,
       language: 'en',
       timezone: 'Europe/Berlin',
     })
+  })
+
+  // ── Browser Push delivery (issue #202): the internal contract gains
+  // notifyBrowserPush, sourced from the same users row, so Glocke's
+  // materialization step can gate push delivery the same way it already
+  // gates notifyInApp. Written from the spec, before the field exists on
+  // the response - both true/false must reflect the stored column
+  // faithfully, and adding the field must not disturb any of the
+  // existing auth/HMAC/404 behavior covered below.
+  it('reflects notifyBrowserPush: false when the stored column is false (the default)', async () => {
+    const userId = await registerRecipient()
+    const path = `/internal/v1/notification-recipients/${userId}`
+
+    const response = await app.request(path, { headers: signedHeaders(path) })
+
+    expect(response.status).toBe(200)
+    const body = await response.json() as Record<string, unknown>
+    expect(body['notifyBrowserPush']).toBe(false)
+  })
+
+  it('reflects notifyBrowserPush: true when the stored column is true', async () => {
+    const userId = await registerRecipient()
+    sqlite.prepare('UPDATE users SET notify_browser_push = ? WHERE id = ?').run(1, userId)
+    const path = `/internal/v1/notification-recipients/${userId}`
+
+    const response = await app.request(path, { headers: signedHeaders(path) })
+
+    expect(response.status).toBe(200)
+    const body = await response.json() as Record<string, unknown>
+    expect(body['notifyBrowserPush']).toBe(true)
+    // The other Glocke-owned fields are untouched by this column read.
+    expect(body['notifyInApp']).toBe(false)
+    expect(body['language']).toBe('en')
+    expect(body['timezone']).toBe('Europe/Berlin')
   })
 
   it.each([
