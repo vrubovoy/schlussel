@@ -3,6 +3,7 @@ import {
   Header as SharedHeader,
   ThemeToggle,
   normalizeNotificationOrigin,
+  useAvatarUrl,
   useUnreadNotifications,
   type ApiClient,
   type HeaderUser,
@@ -90,9 +91,18 @@ function useHeaderApiClient(
 // go.
 export function Header({ user, accessToken, onAccessTokenChange, onLogout }: HeaderProps = {}) {
   const apiClient = useHeaderApiClient(accessToken, onAccessTokenChange)
+  const userId = accessToken && user ? user.id ?? user.name : null
   const notificationState = useUnreadNotifications({
     glockeOrigin: GLOCKE_ORIGIN,
-    userId: accessToken && user ? user.id ?? user.name : null,
+    userId,
+    apiClient,
+  })
+  // schlussel IS Schlüssel - the avatar it fetches for the header is
+  // always its own current origin, no separate env var needed the way
+  // every other app needs one to point away from itself.
+  const avatarUrl = useAvatarUrl({
+    schluesselOrigin: window.location.origin,
+    userId,
     apiClient,
   })
 
@@ -106,7 +116,7 @@ export function Header({ user, accessToken, onAccessTokenChange, onLogout }: Hea
       }
       homeHref={DEFAULT_APP_URL}
       homeTitle="На главную"
-      user={user}
+      user={user ? { ...user, avatarUrl } : user}
       onLogout={onLogout}
       rightSlot={<ThemeToggle />}
       notifications={user && accessToken && NORMALIZED_GLOCKE_ORIGIN

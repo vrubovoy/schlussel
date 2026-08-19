@@ -415,6 +415,27 @@ describe('AccountPage — change password', () => {
     expect(confirm).toHaveValue('')
   })
 
+  it('nudges the header bell to re-check unread notifications shortly after a successful change', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
+    try {
+      const { user } = await renderLoggedIn()
+      mockChangePassword.mockResolvedValue(undefined)
+
+      await user.type(screen.getByLabelText('Текущий пароль'), 'oldpass123')
+      await user.type(screen.getByLabelText('Новый пароль'), 'newpass456')
+      await user.type(screen.getByLabelText('Повторите новый пароль'), 'newpass456')
+      await user.click(screen.getByRole('button', { name: 'Изменить пароль' }))
+      await screen.findByText(/пароль\s+измен/i)
+
+      expect(dispatchSpy.mock.calls.some(([event]) => (event as Event).type.includes('notification-unread-count'))).toBe(false)
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(dispatchSpy.mock.calls.some(([event]) => (event as Event).type.includes('notification-unread-count'))).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('shows an "invalid current password" error tied specifically to the current-password field when changePassword rejects with 401', async () => {
     const { user } = await renderLoggedIn()
     const ApiError = (await import('../lib/api')).ApiError
