@@ -415,25 +415,30 @@ describe('AccountPage — change password', () => {
     expect(confirm).toHaveValue('')
   })
 
-  it('nudges the header bell to re-check unread notifications shortly after a successful change', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true })
+  it('schedules a header-bell re-check ~2s after a successful change, not immediately', async () => {
+    // Asserts the scheduling call itself (setTimeout(fn, 2000)) and then
+    // invokes the captured callback directly, rather than waiting for or
+    // fake-advancing 2 real seconds - real timers plus userEvent's own
+    // internal delays made a "hasn't fired yet, then advance and check"
+    // version of this test flaky under CI's slower/more variable timing.
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout')
     const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
-    try {
-      const { user } = await renderLoggedIn()
-      mockChangePassword.mockResolvedValue(undefined)
+    const { user } = await renderLoggedIn()
+    mockChangePassword.mockResolvedValue(undefined)
 
-      await user.type(screen.getByLabelText('Текущий пароль'), 'oldpass123')
-      await user.type(screen.getByLabelText('Новый пароль'), 'newpass456')
-      await user.type(screen.getByLabelText('Повторите новый пароль'), 'newpass456')
-      await user.click(screen.getByRole('button', { name: 'Изменить пароль' }))
-      await screen.findByText(/пароль\s+измен/i)
+    await user.type(screen.getByLabelText('Текущий пароль'), 'oldpass123')
+    await user.type(screen.getByLabelText('Новый пароль'), 'newpass456')
+    await user.type(screen.getByLabelText('Повторите новый пароль'), 'newpass456')
+    await user.click(screen.getByRole('button', { name: 'Изменить пароль' }))
+    await screen.findByText(/пароль\s+измен/i)
 
-      expect(dispatchSpy.mock.calls.some(([event]) => (event as Event).type.includes('notification-unread-count'))).toBe(false)
-      await vi.advanceTimersByTimeAsync(2000)
-      expect(dispatchSpy.mock.calls.some(([event]) => (event as Event).type.includes('notification-unread-count'))).toBe(true)
-    } finally {
-      vi.useRealTimers()
-    }
+    const scheduled = setTimeoutSpy.mock.calls.find(([, delay]) => delay === 2000)
+    expect(scheduled).toBeDefined()
+    expect(dispatchSpy.mock.calls.some(([event]) => (event as Event).type.includes('notification-unread-count'))).toBe(false)
+
+    ;(scheduled![0] as () => void)()
+
+    expect(dispatchSpy.mock.calls.some(([event]) => (event as Event).type.includes('notification-unread-count'))).toBe(true)
   })
 
   it('shows an "invalid current password" error tied specifically to the current-password field when changePassword rejects with 401', async () => {
