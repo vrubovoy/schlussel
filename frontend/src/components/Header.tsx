@@ -110,7 +110,7 @@ export function Header({ user, accessToken, onAccessTokenChange, onLogout }: Hea
       onLogout={onLogout}
       rightSlot={<ThemeToggle />}
       notifications={user && accessToken && NORMALIZED_GLOCKE_ORIGIN
-        ? { href: `${NORMALIZED_GLOCKE_ORIGIN}/notifications`, state: notificationState }
+        ? { href: `${NORMALIZED_GLOCKE_ORIGIN}/notifications`, state: notificationState, glockeOrigin: NORMALIZED_GLOCKE_ORIGIN, apiClient }
         : undefined}
     />
   )
