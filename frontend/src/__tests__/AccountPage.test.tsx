@@ -421,7 +421,17 @@ describe('AccountPage — change password', () => {
     // fake-advancing 2 real seconds - real timers plus userEvent's own
     // internal delays made a "hasn't fired yet, then advance and check"
     // version of this test flaky under CI's slower/more variable timing.
-    const setTimeoutSpy = vi.spyOn(window, 'setTimeout')
+    // Only the delay===2000 call is diverted from the real timer (letting
+    // it actually schedule risks it firing for real out from under the
+    // test on a slow CI runner, before the "hasn't fired yet" assertion
+    // below even runs) - every other setTimeout call is passed through
+    // untouched, since userEvent and RTL's own internals also schedule
+    // real timers this test isn't about and must keep working normally.
+    const originalSetTimeout = window.setTimeout.bind(window)
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
+      if (delay === 2000) return 0 as unknown as ReturnType<typeof window.setTimeout>
+      return originalSetTimeout(handler, delay, ...args)
+    }) as typeof window.setTimeout)
     const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
     const { user } = await renderLoggedIn()
     mockChangePassword.mockResolvedValue(undefined)
