@@ -36,6 +36,22 @@ function bearerHeader(call: unknown[]): string | null {
   return new Headers((call[1] as RequestInit | undefined)?.headers).get('Authorization')
 }
 
+// The Header now also fires an independent GET .../auth/profile fetch
+// (useAvatarUrl) alongside the unread-count one. `unread` is the mock
+// each test configures/asserts against exactly as before (call count,
+// call[n] args, queued Once responses for 401-then-retry flows); `fetch`
+// is what actually gets stubbed as globalThis.fetch, routing profile
+// requests to a fixed harmless response so they never consume `unread`'s
+// queue or its call-count.
+function routedFetchMocks(): { fetch: ReturnType<typeof vi.fn>; unread: ReturnType<typeof vi.fn> } {
+  const unread = vi.fn()
+  const fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).includes('/auth/profile')) return Promise.resolve(jsonResponse(200, { avatarDataUrl: null }))
+    return unread(input, init)
+  })
+  return { fetch, unread }
+}
+
 describe('authenticated Header Glocke integration', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.example.test')
@@ -50,7 +66,8 @@ describe('authenticated Header Glocke integration', () => {
   })
 
   it('uses VITE_GLOCKE_URL for the bell and unread-count path, sending the token only as a bearer header', async () => {
-    const mockFetch = vi.fn().mockResolvedValue(jsonResponse(200, { count: 7 }))
+    const { fetch: mockFetch, unread } = routedFetchMocks()
+    unread.mockResolvedValue(jsonResponse(200, { count: 7 }))
     vi.stubGlobal('fetch', mockFetch)
     const Header = await loadHeader()
 
@@ -58,8 +75,8 @@ describe('authenticated Header Glocke integration', () => {
       <Header user={{ name: 'Jane Doe' }} onLogout={() => {}} accessToken="page-token" />,
     )
 
-    await waitFor(() => expect(mockFetch).toHaveBeenCalled())
-    const call = mockFetch.mock.calls[0] as unknown[]
+    await waitFor(() => expect(unread).toHaveBeenCalled())
+    const call = unread.mock.calls[0] as unknown[]
     expect(requestUrl(call)).toBe('https://glocke.example.test/backend/notifications/unread-count')
     expect(requestUrl(call)).not.toContain('page-token')
     expect(bearerHeader(call)).toBe('Bearer page-token')
@@ -70,7 +87,8 @@ describe('authenticated Header Glocke integration', () => {
   })
 
   it('aborts the stale unread request when the page-level access token changes', async () => {
-    const mockFetch = vi.fn()
+    const { fetch: mockFetch, unread } = routedFetchMocks()
+    unread
       .mockImplementationOnce(() => new Promise<Response>(() => {}))
       .mockResolvedValueOnce(jsonResponse(200, { count: 2 }))
     vi.stubGlobal('fetch', mockFetch)
@@ -79,18 +97,19 @@ describe('authenticated Header Glocke integration', () => {
     const { rerender } = render(
       <Header user={{ name: 'Jane Doe' }} onLogout={() => {}} accessToken="old-token" />,
     )
-    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
-    const firstSignal = (mockFetch.mock.calls[0]?.[1] as RequestInit | undefined)?.signal
+    await waitFor(() => expect(unread).toHaveBeenCalledTimes(1))
+    const firstSignal = (unread.mock.calls[0]?.[1] as RequestInit | undefined)?.signal
 
     rerender(<Header user={{ name: 'Jane Doe' }} onLogout={() => {}} accessToken="new-token" />)
 
-    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(unread).toHaveBeenCalledTimes(2))
     expect(firstSignal?.aborted).toBe(true)
-    expect(bearerHeader(mockFetch.mock.calls[1] as unknown[])).toBe('Bearer new-token')
+    expect(bearerHeader(unread.mock.calls[1] as unknown[])).toBe('Bearer new-token')
   })
 
   it('silently refreshes once on 401, retries with the replacement token, and does not redirect', async () => {
-    const mockFetch = vi.fn()
+    const { fetch: mockFetch, unread } = routedFetchMocks()
+    unread
       .mockResolvedValueOnce(jsonResponse(401, { error: 'expired' }))
       .mockResolvedValueOnce(jsonResponse(200, { count: 3 }))
     vi.stubGlobal('fetch', mockFetch)
@@ -108,13 +127,13 @@ describe('authenticated Header Glocke integration', () => {
       />,
     )
 
-    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(unread).toHaveBeenCalledTimes(2))
     expect(mockRefreshSession).toHaveBeenCalledTimes(1)
     expect(mockRefreshSession).toHaveBeenCalledWith()
     expect(onAccessTokenChange).toHaveBeenCalledOnce()
     expect(onAccessTokenChange).toHaveBeenCalledWith('refreshed-token')
-    expect(bearerHeader(mockFetch.mock.calls[0] as unknown[])).toBe('Bearer expired-token')
-    expect(bearerHeader(mockFetch.mock.calls[1] as unknown[])).toBe('Bearer refreshed-token')
+    expect(bearerHeader(unread.mock.calls[0] as unknown[])).toBe('Bearer expired-token')
+    expect(bearerHeader(unread.mock.calls[1] as unknown[])).toBe('Bearer refreshed-token')
     expect(window.location.href).toBe(hrefBefore)
     expect(container.querySelector('a[href="https://glocke.example.test/notifications"]')).toHaveTextContent('3')
   })
@@ -122,7 +141,8 @@ describe('authenticated Header Glocke integration', () => {
   it('does not publish or retry a late refresh after the page supplies a newer token', async () => {
     let resolveRefresh!: (value: { accessToken: string }) => void
     mockRefreshSession.mockReturnValue(new Promise((resolve) => { resolveRefresh = resolve }))
-    const mockFetch = vi.fn()
+    const { fetch: mockFetch, unread } = routedFetchMocks()
+    unread
       .mockResolvedValueOnce(jsonResponse(401, { error: 'expired' }))
       .mockResolvedValueOnce(jsonResponse(200, { count: 2 }))
     vi.stubGlobal('fetch', mockFetch)
@@ -145,18 +165,18 @@ describe('authenticated Header Glocke integration', () => {
         onAccessTokenChange={onAccessTokenChange}
       />,
     )
-    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(unread).toHaveBeenCalledTimes(2))
     resolveRefresh({ accessToken: 'late-refreshed-token' })
     await Promise.resolve()
 
     expect(onAccessTokenChange).not.toHaveBeenCalled()
-    expect(mockFetch).toHaveBeenCalledTimes(2)
-    expect(bearerHeader(mockFetch.mock.calls[1] as unknown[])).toBe('Bearer newer-page-token')
+    expect(unread).toHaveBeenCalledTimes(2)
+    expect(bearerHeader(unread.mock.calls[1] as unknown[])).toBe('Bearer newer-page-token')
   })
 
   it('omits the bell for an invalid Glocke origin without throwing, fetching, or rendering the raw link', async () => {
     vi.stubEnv('VITE_GLOCKE_URL', 'http://glocke.example.test/path')
-    const mockFetch = vi.fn()
+    const { fetch: mockFetch, unread } = routedFetchMocks()
     vi.stubGlobal('fetch', mockFetch)
     const Header = await loadHeader()
 
@@ -165,7 +185,10 @@ describe('authenticated Header Glocke integration', () => {
     )
 
     await Promise.resolve()
-    expect(mockFetch).not.toHaveBeenCalled()
+    // An invalid Glocke origin only suppresses the unread-count fetch and
+    // the bell itself - the avatar fetch (useAvatarUrl) targets
+    // Schlüssel's own origin independently and is unaffected.
+    expect(unread).not.toHaveBeenCalled()
     expect(container.querySelector('a[aria-label^="Уведомления:"]')).not.toBeInTheDocument()
     expect(container.querySelector('a[href="http://glocke.example.test/path/notifications"]')).not.toBeInTheDocument()
   })

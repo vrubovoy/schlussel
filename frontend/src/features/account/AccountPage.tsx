@@ -3,7 +3,7 @@ import {
   KeyRound, Trash2, User as UserIcon, Monitor, ShieldCheck, Globe, Bell, Link2, Lock, Download,
   Send, Camera,
 } from 'lucide-react'
-import { Button, Field, Badge, DirectExportAction } from '@zudar107/schloss-ui'
+import { Button, Field, Badge, DirectExportAction, invalidateNotificationUnreadCount } from '@zudar107/schloss-ui'
 import { generateCodeVerifier, generateCodeChallenge } from '../../lib/pkce'
 import {
   refreshSession, fetchMe, exchangeCode, changePassword, deleteAccount, updateName,
@@ -409,6 +409,13 @@ function PasswordCard({ accessToken }: { accessToken: string }) {
       setNewPassword('')
       setConfirmPassword('')
       setSuccess(true)
+      // The password-changed notification is written by Schlüssel's own
+      // outbox and processed asynchronously by Glocke - re-checking the
+      // unread count immediately would very likely still see the old
+      // count, so this gives the pipeline a moment before nudging the
+      // header bell to re-poll instead of waiting for its next scheduled
+      // poll (up to ~60s).
+      setTimeout(() => invalidateNotificationUnreadCount(), 2000)
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setFieldErrors({ currentPassword: 'Неверный текущий пароль' })
