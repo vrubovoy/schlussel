@@ -12,6 +12,7 @@ self-hosted personal services:
 - [`tafel`](https://github.com/zudaR107/tafel) — task/project tracking
 - [`zettel`](https://github.com/zudaR107/zettel) — markdown note-taking
 - [`glocke`](https://github.com/zudaR107/glocke) — notification center
+- [`schrank`](https://github.com/zudaR107/schrank) — file storage with nested folders
 - [`tor`](https://github.com/zudaR107/tor) — reverse-proxy gateway
 - [`schloss-ui`](https://github.com/zudaR107/schloss-ui) — shared frontend components
 - [`schloss-server-kit`](https://github.com/zudaR107/schloss-server-kit) — shared backend auth/CORS/notification transport kit
