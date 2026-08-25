@@ -53,6 +53,19 @@ services:
       - GLOCKE_MAX_ATTEMPTS=${GLOCKE_MAX_ATTEMPTS:-8}
       - GLOCKE_RETRY_BASE_DELAY_MS=${GLOCKE_RETRY_BASE_DELAY_MS:-1000}
       - GLOCKE_RETRY_MAX_DELAY_MS=${GLOCKE_RETRY_MAX_DELAY_MS:-900000}
+      - KUVERT_DELETION_URL=${KUVERT_DELETION_URL:-http://kuvert-backend:3001/internal/v1/account-deletions}
+      - TAFEL_DELETION_URL=${TAFEL_DELETION_URL:-http://tafel-backend:3002/internal/v1/account-deletions}
+      - ZETTEL_DELETION_URL=${ZETTEL_DELETION_URL:-http://zettel-backend:3003/internal/v1/account-deletions}
+      - GLOCKE_DELETION_URL=${GLOCKE_DELETION_URL:-http://glocke-backend:3004/internal/v1/account-deletions}
+      - SCHRANK_DELETION_URL=${SCHRANK_DELETION_URL:-http://schrank-backend:3005/internal/v1/account-deletions}
+      - HEROLD_DELETION_URL=${HEROLD_DELETION_URL:-http://herold-backend:3006/internal/v1/account-deletions}
+      - DELETION_DISPATCH_INTERVAL_MS=${DELETION_DISPATCH_INTERVAL_MS:-1000}
+      - DELETION_LEASE_MS=${DELETION_LEASE_MS:-30000}
+      - DELETION_FETCH_TIMEOUT_MS=${DELETION_FETCH_TIMEOUT_MS:-10000}
+      - DELETION_WORKER_STOP_TIMEOUT_MS=${DELETION_WORKER_STOP_TIMEOUT_MS:-5000}
+      - DELETION_MAX_ATTEMPTS=${DELETION_MAX_ATTEMPTS:-8}
+      - DELETION_RETRY_BASE_DELAY_MS=${DELETION_RETRY_BASE_DELAY_MS:-1000}
+      - DELETION_RETRY_MAX_DELAY_MS=${DELETION_RETRY_MAX_DELAY_MS:-900000}
       # Substitution var is SCHLUSSEL_ALLOWED_ORIGINS, not ALLOWED_ORIGINS -
       # when tor's docker-compose.yml includes this file alongside kuvert's,
       # both used to read the exact same outer variable name, so one shared

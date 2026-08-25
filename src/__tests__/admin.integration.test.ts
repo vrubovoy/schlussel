@@ -96,6 +96,8 @@ beforeAll(async () => {
 
 beforeEach(() => {
   // Delete child rows first to satisfy FK, then parent.
+  sqlite.exec('DELETE FROM deletion_job_targets')
+  sqlite.exec('DELETE FROM deletion_jobs')
   sqlite.exec('DELETE FROM refresh_tokens')
   sqlite.exec('DELETE FROM invites')
   sqlite.exec('DELETE FROM users')
@@ -621,6 +623,10 @@ describe('DELETE /auth/admin/users/:id', () => {
 
     const res = await del(`/auth/admin/users/${target.id}`, { password: DEFAULT_PASSWORD }, bearer(accessToken))
     expect(res.status).toBe(200)
+    expect(sqlite.prepare('SELECT user_id, initiated_by FROM deletion_jobs').get()).toEqual({
+      user_id: target.id, initiated_by: 'admin',
+    })
+    expect(sqlite.prepare('SELECT count(*) AS count FROM deletion_job_targets').get()).toEqual({ count: 6 })
 
     const loginAfter = await post('/auth/login', { email: target.email, password: DEFAULT_PASSWORD })
     expect(loginAfter.status).not.toBe(200)

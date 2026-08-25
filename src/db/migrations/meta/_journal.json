@@ -71,6 +71,13 @@
       "when": 1787645272980,
       "tag": "0009_thin_scorpion",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1787647961999,
+      "tag": "0010_account_deletion",
+      "breakpoints": true
     }
   ]
 }

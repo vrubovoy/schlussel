@@ -148,6 +148,35 @@ export const notificationOutbox = sqliteTable('notification_outbox', {
   ),
 ])
 
+export const deletionJobs = sqliteTable('deletion_jobs', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  initiatedBy: text('initiated_by', { enum: ['self', 'admin'] }).notNull(),
+  status: text('status', { enum: ['pending', 'running', 'completed', 'failed'] }).notNull().default('pending'),
+  createdAt: integer('created_at').notNull(),
+  startedAt: integer('started_at'),
+  completedAt: integer('completed_at'),
+}, (table) => [
+  check('deletion_jobs_status_check', sql`${table.status} in ('pending', 'running', 'completed', 'failed')`),
+  index('deletion_jobs_status_idx').on(table.status, table.createdAt),
+])
+
+export const deletionJobTargets = sqliteTable('deletion_job_targets', {
+  jobId: text('job_id').notNull().references(() => deletionJobs.id, { onDelete: 'cascade' }),
+  service: text('service', { enum: ['kuvert', 'tafel', 'zettel', 'glocke', 'schrank', 'herold'] }).notNull(),
+  status: text('status', { enum: ['pending', 'inflight', 'delivered', 'permanent'] }).notNull().default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  nextAttemptAt: integer('next_attempt_at'),
+  leaseId: text('lease_id'),
+  leaseUntil: integer('lease_until'),
+  deliveredAt: integer('delivered_at'),
+  lastError: text('last_error'),
+}, (table) => [
+  primaryKey({ columns: [table.jobId, table.service] }),
+  check('deletion_targets_status_check', sql`${table.status} in ('pending', 'inflight', 'delivered', 'permanent')`),
+  index('deletion_targets_dispatch_idx').on(table.status, table.nextAttemptAt, table.leaseUntil),
+])
+
 export const exportJobs = sqliteTable('export_jobs', {
   id: text('id').primaryKey(),
   ownerUserId: text('owner_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
@@ -242,5 +271,6 @@ export type Invite = typeof invites.$inferSelect
 export type ThemePreference = typeof themePreference.$inferSelect
 export type ConnectedAccount = typeof connectedAccounts.$inferSelect
 export type NotificationOutbox = typeof notificationOutbox.$inferSelect
+export type DeletionJobTarget = typeof deletionJobTargets.$inferSelect
 export type ExportJob = typeof exportJobs.$inferSelect
 export type ExportJobService = typeof exportJobServices.$inferSelect

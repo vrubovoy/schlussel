@@ -15,7 +15,8 @@ import { db } from './db/index.js'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 import { startOutboxDispatcher } from './services/outboxDispatcher.js'
 import { createExportServices, startExportWorker } from './services/exportWorker.js'
-import { loadExportConfig, loadNotificationConfig } from './config.js'
+import { loadDeletionConfig, loadExportConfig, loadNotificationConfig } from './config.js'
+import { startDeletionWorker } from './services/deletionSaga.js'
 
 // Resolved relative to this file so it works both in dev (src/index.ts,
 // migrations at src/db/migrations) and in the compiled build
@@ -24,6 +25,7 @@ import { loadExportConfig, loadNotificationConfig } from './config.js'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const notificationConfig = loadNotificationConfig()
 const exportConfig = loadExportConfig()
+const deletionConfig = loadDeletionConfig()
 
 await initKeys()
 migrate(db, { migrationsFolder: join(__dirname, 'db/migrations') })
@@ -98,12 +100,17 @@ const exportWorker = startExportWorker({
   onError: () => console.error('[Schlüssel] Export worker failed'),
 })
 
+const deletionWorker = startDeletionWorker({
+  ...deletionConfig,
+  onError: () => console.error('[Schlüssel] Account deletion dispatch failed'),
+})
+
 let shutdownStarted = false
 async function shutdown() {
   if (shutdownStarted) return
   shutdownStarted = true
   server.close()
-  await Promise.all([dispatcher.stop(), exportWorker.stop()])
+  await Promise.all([dispatcher.stop(), exportWorker.stop(), deletionWorker.stop()])
 }
 
 process.once('SIGINT', () => { void shutdown() })

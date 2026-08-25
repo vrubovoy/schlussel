@@ -19,6 +19,7 @@ import { isLoginRateLimited, recordLoginFailure, recordLoginSuccess } from '../u
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { createSchlusselAccountExport, schlusselProfileJson as profileJson } from '../services/schlusselExport.js'
 import { createExportJobsRouter } from './exportJobs.js'
+import { enqueueDeletionJob } from '../services/deletionSaga.js'
 
 const REFRESH_TOKEN_MAX_AGE = 60 * 60 * 24 * 7 // 7 days in seconds
 const COOKIE_NAME = 'schloss_refresh'
@@ -625,6 +626,7 @@ authRouter.delete('/account', zValidator('json', deleteAccountSchema), async (c)
     const sessionIds = tx.select({ id: refreshTokens.id }).from(refreshTokens)
       .where(eq(refreshTokens.userId, user.id)).all().map((session) => session.id)
     insertSessionCleanup(tx, user.id, sessionIds)
+    enqueueDeletionJob(tx, user.id, 'self')
     tx.delete(users).where(eq(users.id, user.id)).run()
     return false
   })

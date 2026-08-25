@@ -1,13 +1,16 @@
 import { Hono, type Context } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import { eq } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import { createId } from '@paralleldrive/cuid2'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { db } from '../db/index.js'
-import { users, refreshTokens, invites, notificationOutbox } from '../db/schema.js'
+import {
+  users, refreshTokens, invites, notificationOutbox, deletionJobs, deletionJobTargets,
+} from '../db/schema.js'
 import { verifyPassword } from '../utils/password.js'
 import { authenticateBearer, hashToken } from './auth.js'
+import { enqueueDeletionJob } from '../services/deletionSaga.js'
 
 const DEFAULT_INVITE_TTL_DAYS = 7
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -221,6 +224,7 @@ adminRouter.delete('/admin/users/:id', zValidator('json', adminDeleteSchema), as
     const sessionIds = tx.select({ id: refreshTokens.id }).from(refreshTokens)
       .where(eq(refreshTokens.userId, id)).all().map((session) => session.id)
     insertSessionCleanup(tx, id, sessionIds)
+    enqueueDeletionJob(tx, id, 'admin')
     tx.delete(users).where(eq(users.id, id)).run()
     return { error: null }
   })
@@ -229,6 +233,32 @@ adminRouter.delete('/admin/users/:id', zValidator('json', adminDeleteSchema), as
   if (result.error === 'orphan') return c.json({ error: 'Cannot delete the last remaining admin' }, 409)
 
   return c.json({ ok: true })
+})
+
+adminRouter.get('/admin/deletion-jobs', async (c) => {
+  const auth = await authenticateAdmin(c)
+  if ('response' in auth) return auth.response
+  const jobs = await db.select().from(deletionJobs).orderBy(desc(deletionJobs.createdAt)).limit(100)
+  const targets = await db.select().from(deletionJobTargets)
+  return c.json(jobs.map((job) => ({
+    id: job.id,
+    userId: job.userId,
+    initiatedBy: job.initiatedBy,
+    status: job.status,
+    createdAt: new Date(job.createdAt).toISOString(),
+    startedAt: job.startedAt == null ? null : new Date(job.startedAt).toISOString(),
+    completedAt: job.completedAt == null ? null : new Date(job.completedAt).toISOString(),
+    targets: targets.filter((target) => target.jobId === job.id),
+  })))
+})
+
+adminRouter.get('/admin/deletion-jobs/:id', async (c) => {
+  const auth = await authenticateAdmin(c)
+  if ('response' in auth) return auth.response
+  const job = await db.select().from(deletionJobs).where(eq(deletionJobs.id, c.req.param('id'))).get()
+  if (!job) return c.json({ error: 'Deletion job not found' }, 404)
+  const targets = await db.select().from(deletionJobTargets).where(eq(deletionJobTargets.jobId, job.id))
+  return c.json({ ...job, targets })
 })
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
