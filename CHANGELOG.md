@@ -5,6 +5,10 @@ Brief log of notable changes, grouped by theme — not a full commit history
 fit best; add a new section if none fits.
 
 ## Notifications
+- Added stable `sid` claims to session-backed access tokens and durable,
+  per-session Glocke cleanup events for logout, password changes, account
+  deletion, and user/admin session revocation. PKCE and trusted refresh rotation
+  preserve the same session identity; legacy access tokens remain readable.
 - Added the shared Glocke notification bell and unread-count lifecycle to
   authenticated account, admin, docs, and access-denied headers. It reuses each
   page's in-memory token, publishes silently refreshed tokens back to page-owned

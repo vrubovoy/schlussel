@@ -1,0 +1,1 @@
+ALTER TABLE `auth_codes` ADD `session_id` text;

@@ -64,6 +64,13 @@
       "when": 1786099728617,
       "tag": "0008_typical_lorna_dane",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1787645272980,
+      "tag": "0009_thin_scorpion",
+      "breakpoints": true
     }
   ]
 }
