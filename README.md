@@ -1,6 +1,6 @@
 # Schlüssel
 
-[![Test](https://github.com/zudaR107/schlussel/actions/workflows/test.yml/badge.svg)](https://github.com/zudaR107/schlussel/actions/workflows/test.yml)
+[![Test](https://github.com/vrubovoy/schlussel/actions/workflows/test.yml/badge.svg)](https://github.com/vrubovoy/schlussel/actions/workflows/test.yml)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 
 Part of the [Hof platform](https://github.com/zudaR107/Hof) — a suite of
