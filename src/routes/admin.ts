@@ -3,9 +3,9 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { eq } from 'drizzle-orm'
 import { createId } from '@paralleldrive/cuid2'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { db } from '../db/index.js'
-import { users, refreshTokens, invites } from '../db/schema.js'
+import { users, refreshTokens, invites, notificationOutbox } from '../db/schema.js'
 import { verifyPassword } from '../utils/password.js'
 import { authenticateBearer, hashToken } from './auth.js'
 
@@ -184,7 +184,12 @@ adminRouter.delete('/admin/users/:id/sessions', async (c) => {
   const target = await db.select().from(users).where(eq(users.id, id)).get()
   if (!target) return c.json({ error: 'User not found' }, 404)
 
-  await db.delete(refreshTokens).where(eq(refreshTokens.userId, id))
+  db.transaction((tx) => {
+    const sessionIds = tx.select({ id: refreshTokens.id }).from(refreshTokens)
+      .where(eq(refreshTokens.userId, id)).all().map((session) => session.id)
+    tx.delete(refreshTokens).where(eq(refreshTokens.userId, id)).run()
+    insertSessionCleanup(tx, id, sessionIds)
+  })
   return c.json({ ok: true })
 })
 
@@ -213,6 +218,9 @@ adminRouter.delete('/admin/users/:id', zValidator('json', adminDeleteSchema), as
       const admins = tx.select().from(users).where(eq(users.role, 'admin')).all()
       if (admins.length <= 1) return { error: 'orphan' as const }
     }
+    const sessionIds = tx.select({ id: refreshTokens.id }).from(refreshTokens)
+      .where(eq(refreshTokens.userId, id)).all().map((session) => session.id)
+    insertSessionCleanup(tx, id, sessionIds)
     tx.delete(users).where(eq(users.id, id)).run()
     return { error: null }
   })
@@ -222,6 +230,24 @@ adminRouter.delete('/admin/users/:id', zValidator('json', adminDeleteSchema), as
 
   return c.json({ ok: true })
 })
+
+type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+function insertSessionCleanup(tx: Transaction, userId: string, sessionIds: readonly string[]): void {
+  const now = Date.now()
+  for (const sessionId of sessionIds) {
+    const eventId = randomUUID()
+    tx.insert(notificationOutbox).values({
+      id: eventId,
+      eventType: 'schlussel.push.session_revoked.v1',
+      userId,
+      payload: JSON.stringify({ recipientId: userId, sessionId }),
+      correlationId: eventId,
+      createdAt: now,
+      nextAttemptAt: now,
+    }).run()
+  }
+}
 
 // ── Stats ────────────────────────────────────────────────────────────────
 

@@ -39,7 +39,7 @@ const userSchema = z.object({
 })
 
 const accessTokenSchema = z.string().describe(
-  'Short-lived RS256 JWT. In addition to identity claims, its payload includes nullable timezone, dateFormat, and weekStart profile preferences.',
+  'Short-lived RS256 JWT. In addition to identity and profile preference claims, newly issued session-backed tokens include a stable sid claim. Legacy tokens may omit sid.',
 )
 
 const accessTokenResponseSchema = z.object({

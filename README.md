@@ -38,6 +38,13 @@ JWT themselves against Schlüssel's public key, published at
 `/.well-known/jwks.json` — no shared secret, no synchronous call back to Schlüssel on
 every request.
 
+Session-backed access tokens include a stable `sid` claim equal to the active
+refresh-session row ID. It remains unchanged when the refresh credential rotates
+and is carried through PKCE. Older access tokens without `sid` remain valid for
+ordinary APIs during their short lifetime, but consumers must not use them for
+new session-bound resources. Session revocation and logout atomically enqueue
+idempotent Glocke cleanup work; Glocke availability never delays the response.
+
 The JSON contract uses camelCase even though the browser redirect query uses OAuth-style
 snake_case: `POST /auth/login` accepts either just `email` + `password`, or those fields
 plus the complete `codeChallenge` + `codeChallengeMethod: "S256"` pair. The optional body

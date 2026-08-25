@@ -21,6 +21,7 @@ export interface JwtPayload {
   weekStart?: 'monday' | 'sunday' | null
   dateFormat?: 'dmy' | 'mdy' | 'ymd' | null
   timezone?: string | null
+  sessionId?: string
 }
 
 export interface VerifiedTokenPayload {
@@ -37,6 +38,7 @@ export interface VerifiedTokenPayload {
   jobId?: string
   scope?: string
   audience?: string | string[]
+  sessionId?: string
 }
 
 const ACCESS_TOKEN_TTL = '15m'
@@ -52,6 +54,7 @@ export async function signAccessToken(payload: JwtPayload): Promise<string> {
     weekStart: payload.weekStart ?? null,
     dateFormat: payload.dateFormat ?? null,
     timezone: payload.timezone ?? null,
+    ...(payload.sessionId ? { sid: payload.sessionId } : {}),
   })
     .setProtectedHeader({ alg: 'RS256', kid: 'schloss-1' })
     .setSubject(payload.sub)
@@ -119,6 +122,7 @@ export async function verifyToken(token: string): Promise<VerifiedTokenPayload> 
     ...(typeof payload['job_id'] === 'string' ? { jobId: payload['job_id'] } : {}),
     ...(typeof payload['scope'] === 'string' ? { scope: payload['scope'] } : {}),
     ...(typeof payload.aud === 'string' || Array.isArray(payload.aud) ? { audience: payload.aud } : {}),
+    ...(typeof payload['sid'] === 'string' && payload['sid'].length > 0 ? { sessionId: payload['sid'] } : {}),
   }
 }
 
@@ -144,6 +148,7 @@ export async function verifyAccessToken(token: string): Promise<JwtPayload & { e
     weekStart: payload.weekStart ?? null,
     dateFormat: payload.dateFormat ?? null,
     timezone: payload.timezone ?? null,
+    ...(payload.sessionId ? { sessionId: payload.sessionId } : {}),
     exp: payload.exp,
   }
 }

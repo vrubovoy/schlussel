@@ -29,6 +29,12 @@ describe('notification startup configuration', () => {
     })
   })
 
+  it('normalizes the Glocke origin once at startup', () => {
+    expect(loadNotificationConfig(validEnv({
+      GLOCKE_BASE_URL: 'https://glocke.example.test/',
+    })).glockeBaseUrl).toBe('https://glocke.example.test')
+  })
+
   it('rejects reuse of one HMAC secret in both trust directions', () => {
     const sharedSecret = 'shared-directional-secret'.repeat(2)
     expect(() => loadNotificationConfig(validEnv({

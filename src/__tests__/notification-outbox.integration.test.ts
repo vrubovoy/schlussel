@@ -133,8 +133,10 @@ describe('password-changed notification outbox', () => {
     expect(await response.json()).toEqual({ ok: true })
 
     const rows = outboxRows()
-    expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({
+    expect(rows).toHaveLength(2)
+    const passwordEvent = rows.find((row) => row.event_type === 'schlussel.security.password_changed.v1')
+    const cleanupEvent = rows.find((row) => row.event_type === 'schlussel.push.session_revoked.v1')
+    expect(passwordEvent).toMatchObject({
       event_type: 'schlussel.security.password_changed.v1',
       user_id: userId,
       state: 'pending',
@@ -143,12 +145,13 @@ describe('password-changed notification outbox', () => {
       last_error: null,
     })
 
-    const payload = JSON.parse(rows[0]!.payload) as Record<string, unknown>
+    const payload = JSON.parse(passwordEvent!.payload) as Record<string, unknown>
     expect(payload).toEqual({ recipientId: userId })
-    expect(rows[0]!.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
-    expect(rows[0]!.correlation_id).toBe(rows[0]!.id)
-    expect(rows[0]!.created_at).toBeGreaterThan(1_000_000_000_000)
-    expect(rows[0]!.next_attempt_at).toBe(rows[0]!.created_at)
+    expect(passwordEvent!.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
+    expect(passwordEvent!.correlation_id).toBe(passwordEvent!.id)
+    expect(passwordEvent!.created_at).toBeGreaterThan(1_000_000_000_000)
+    expect(passwordEvent!.next_attempt_at).toBe(passwordEvent!.created_at)
+    expect(JSON.parse(cleanupEvent!.payload)).toMatchObject({ recipientId: userId, sessionId: expect.any(String) })
   })
 
   it('records no event when the current password is invalid', async () => {
@@ -169,12 +172,10 @@ describe('password-changed notification outbox', () => {
 
     expect(response.status).toBe(200)
     expect(fetchMock).not.toHaveBeenCalled()
-    expect(outboxRows()).toEqual([
-      expect.objectContaining({
-        event_type: 'schlussel.security.password_changed.v1',
-        user_id: userId,
-      }),
-    ])
+    expect(outboxRows()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event_type: 'schlussel.security.password_changed.v1', user_id: userId }),
+      expect.objectContaining({ event_type: 'schlussel.push.session_revoked.v1', user_id: userId }),
+    ]))
   })
 
   it('rolls password and session effects back when the outbox insert fails', async () => {

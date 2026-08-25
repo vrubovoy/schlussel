@@ -172,13 +172,18 @@ function requestMeta(c: { req: { header: (name: string) => string | undefined } 
 // id) so a per-user sessionTimeoutMinutes preference (see profileUpdateSchema)
 // can shorten this session's lifetime - it can only ever shorten, never
 // extend past REFRESH_TOKEN_MAX_AGE, which stays the platform-wide ceiling.
-async function establishSession(c: RequestResponseContext, user: User, meta: RequestMeta): Promise<void> {
+async function establishSession(
+  c: RequestResponseContext,
+  user: User,
+  meta: RequestMeta,
+  sessionId: string = createId(),
+): Promise<string> {
   const refreshToken = await signRefreshToken(user.id)
   const maxAgeSeconds = user.sessionTimeoutMinutes != null
     ? Math.min(user.sessionTimeoutMinutes * 60, REFRESH_TOKEN_MAX_AGE)
     : REFRESH_TOKEN_MAX_AGE
   await db.insert(refreshTokens).values({
-    id: createId(),
+    id: sessionId,
     userId: user.id,
     tokenHash: hashToken(refreshToken),
     userAgent: meta.userAgent,
@@ -187,6 +192,7 @@ async function establishSession(c: RequestResponseContext, user: User, meta: Req
     createdAt: new Date(),
   })
   setCookieHeader(c, refreshToken)
+  return sessionId
 }
 
 // Issues a real access token plus, if `trusted`, a fresh session cookie -
@@ -195,6 +201,7 @@ async function establishSession(c: RequestResponseContext, user: User, meta: Req
 // consumer app's own /auth/* proxy. Both hand the access token straight
 // back in the response body regardless.
 async function issueSession(c: RequestResponseContext, user: User, trusted: boolean) {
+  const sessionId = trusted ? await establishSession(c, user, requestMeta(c)) : undefined
   const accessToken = await signAccessToken({
     sub: user.id,
     email: user.email,
@@ -203,8 +210,8 @@ async function issueSession(c: RequestResponseContext, user: User, trusted: bool
     weekStart: user.weekStart,
     dateFormat: user.dateFormat,
     timezone: user.timezone,
+    ...(sessionId ? { sessionId } : {}),
   })
-  if (trusted) await establishSession(c, user, requestMeta(c))
 
   return {
     accessToken,
@@ -216,13 +223,14 @@ async function issueSession(c: RequestResponseContext, user: User, trusted: bool
 // password-verified /login branch and the cookie-verified silent-reauth
 // branch of /refresh below, so a token never has to travel through a
 // redirect URL in either case.
-async function issueAuthCode(userId: string, codeChallenge: string): Promise<string> {
+async function issueAuthCode(userId: string, codeChallenge: string, sessionId: string | null): Promise<string> {
   const code = randomBytes(32).toString('base64url')
   await db.insert(authCodes).values({
     id: createId(),
     userId,
     codeHash: hashToken(code),
     codeChallenge,
+    sessionId,
     expiresAt: new Date(Date.now() + AUTH_CODE_MAX_AGE * 1000),
     createdAt: new Date(),
   })
@@ -347,8 +355,8 @@ authRouter.post('/login', zValidator('json', loginSchema), async (c) => {
   // /refresh below skip the credentials form entirely the next time any
   // app redirects here.
   if ('codeChallenge' in credentials) {
-    if (isTrustedOrigin(c)) await establishSession(c, user, requestMeta(c))
-    const code = await issueAuthCode(user.id, credentials.codeChallenge)
+    const sessionId = isTrustedOrigin(c) ? await establishSession(c, user, requestMeta(c)) : null
+    const code = await issueAuthCode(user.id, credentials.codeChallenge, sessionId)
     return c.json({ code })
   }
 
@@ -385,7 +393,35 @@ authRouter.post('/token', zValidator('json', tokenSchema), async (c) => {
   const user = await db.select().from(users).where(eq(users.id, stored.userId)).get()
   if (!user) return c.json({ error: 'Invalid or expired code' }, 400)
 
-  return c.json(await issueSession(c, user, isTrustedOrigin(c)))
+  let sessionId = stored.sessionId
+  if (isTrustedOrigin(c)) {
+    const existingSession = sessionId
+      ? await db.select().from(refreshTokens).where(eq(refreshTokens.id, sessionId)).get()
+      : null
+    if (existingSession) {
+      const replacement = await signRefreshToken(user.id)
+      await db.update(refreshTokens).set({ tokenHash: hashToken(replacement) })
+        .where(eq(refreshTokens.id, existingSession.id))
+      setCookieHeader(c, replacement)
+    } else {
+      sessionId = await establishSession(c, user, requestMeta(c))
+    }
+  }
+
+  const accessToken = await signAccessToken({
+    sub: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    weekStart: user.weekStart,
+    dateFormat: user.dateFormat,
+    timezone: user.timezone,
+    ...(sessionId ? { sessionId } : {}),
+  })
+  return c.json({
+    accessToken,
+    user: { id: user.id, email: user.email, name: user.name, role: user.role },
+  })
 })
 
 authRouter.post('/refresh', async (c) => {
@@ -438,18 +474,20 @@ authRouter.post('/refresh', async (c) => {
     return c.json({ error: 'Legacy refresh token must be rotated at the trusted auth origin' }, 401)
   }
 
-  // Rotate refresh token - deleted unconditionally, re-issued only if
-  // trusted (see isTrustedOrigin). An untrusted caller (a consumer app's
-  // own proxied /auth/refresh, polling to keep its local state fresh)
-  // still gets a valid access token back for whatever cookie it already
-  // had, but that cookie is not renewed - it quietly stops working the
-  // moment its now-deleted DB row is looked up again, instead of being
-  // rotated forever.
-  await db.delete(refreshTokens).where(eq(refreshTokens.tokenHash, tokenHash))
+  // Trusted refresh rotates the credential in place so the session id remains
+  // stable. Untrusted refresh retains the existing one-shot behavior, but its
+  // revocation and durable Glocke cleanup are now one transaction.
 
   if ('codeChallenge' in parsed.data) {
-    if (trusted) await establishSession(c, user, requestMeta(c))
-    const code = await issueAuthCode(user.id, parsed.data.codeChallenge)
+    if (trusted) {
+      const replacement = await signRefreshToken(user.id)
+      await db.update(refreshTokens).set({ tokenHash: hashToken(replacement) })
+        .where(eq(refreshTokens.id, stored.id))
+      setCookieHeader(c, replacement)
+    } else {
+      revokeSessions(user.id, [stored.id])
+    }
+    const code = await issueAuthCode(user.id, parsed.data.codeChallenge, stored.id)
     return c.json({ code })
   }
 
@@ -461,8 +499,16 @@ authRouter.post('/refresh', async (c) => {
     weekStart: user.weekStart,
     dateFormat: user.dateFormat,
     timezone: user.timezone,
+    sessionId: stored.id,
   })
-  if (trusted) await establishSession(c, user, requestMeta(c))
+  if (trusted) {
+    const replacement = await signRefreshToken(user.id)
+    await db.update(refreshTokens).set({ tokenHash: hashToken(replacement) })
+      .where(eq(refreshTokens.id, stored.id))
+    setCookieHeader(c, replacement)
+  } else {
+    revokeSessions(user.id, [stored.id])
+  }
 
   return c.json({ accessToken: newAccessToken })
 })
@@ -471,7 +517,8 @@ authRouter.post('/logout', async (c) => {
   const refreshToken = getCookie(c)
   if (refreshToken) {
     const tokenHash = hashToken(refreshToken)
-    await db.delete(refreshTokens).where(eq(refreshTokens.tokenHash, tokenHash))
+    const session = await db.select().from(refreshTokens).where(eq(refreshTokens.tokenHash, tokenHash)).get()
+    if (session) revokeSessions(session.userId, [session.id])
   }
   clearCookie(c)
   return c.json({ ok: true })
@@ -513,6 +560,8 @@ authRouter.patch('/password', zValidator('json', changePasswordSchema), async (c
   const now = Date.now()
   const meta = requestMeta(c)
   const eventId = randomUUID()
+  const revokedSessionIds = db.select({ id: refreshTokens.id }).from(refreshTokens)
+    .where(eq(refreshTokens.userId, user.id)).all().map((session) => session.id)
 
   // No network work belongs in this transaction. Glocke delivery is handled
   // later by the outbox dispatcher, while all local password/session effects
@@ -520,6 +569,7 @@ authRouter.patch('/password', zValidator('json', changePasswordSchema), async (c
   db.transaction((tx) => {
     tx.update(users).set({ passwordHash }).where(eq(users.id, user.id)).run()
     tx.delete(refreshTokens).where(eq(refreshTokens.userId, user.id)).run()
+    insertSessionCleanup(tx, user.id, revokedSessionIds, now)
     tx.insert(refreshTokens).values({
       id: createId(),
       userId: user.id,
@@ -572,6 +622,9 @@ authRouter.delete('/account', zValidator('json', deleteAccountSchema), async (c)
     // cleanup needed here. Other services' own local copies of this
     // user's id are left as-is; without a valid session they can never be
     // issued a new token again, which is what actually locks them out.
+    const sessionIds = tx.select({ id: refreshTokens.id }).from(refreshTokens)
+      .where(eq(refreshTokens.userId, user.id)).all().map((session) => session.id)
+    insertSessionCleanup(tx, user.id, sessionIds)
     tx.delete(users).where(eq(users.id, user.id)).run()
     return false
   })
@@ -721,7 +774,7 @@ authRouter.delete('/sessions/:id', async (c) => {
   const session = await db.select().from(refreshTokens).where(and(eq(refreshTokens.id, id), eq(refreshTokens.userId, user.id))).get()
   if (!session) return c.json({ error: 'Session not found' }, 404)
 
-  await db.delete(refreshTokens).where(eq(refreshTokens.id, id))
+  revokeSessions(user.id, [id])
 
   const currentCookie = getCookie(c)
   if (currentCookie && hashToken(currentCookie) === session.tokenHash) clearCookie(c)
@@ -736,13 +789,45 @@ authRouter.delete('/sessions', async (c) => {
   const user = await authenticateBearer(c)
   if (!user) return c.json({ error: 'Unauthorized' }, 401)
 
-  await db.delete(refreshTokens).where(eq(refreshTokens.userId, user.id))
+  const sessionIds = db.select({ id: refreshTokens.id }).from(refreshTokens)
+    .where(eq(refreshTokens.userId, user.id)).all().map((session) => session.id)
+  revokeSessions(user.id, sessionIds)
   clearCookie(c)
 
   return c.json({ ok: true })
 })
 
 authRouter.route('/', createExportJobsRouter(authenticateBearer))
+
+type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+function insertSessionCleanup(tx: Transaction, userId: string, sessionIds: readonly string[], now = Date.now()): void {
+  for (const sessionId of sessionIds) {
+    const id = randomUUID()
+    tx.insert(notificationOutbox).values({
+      id,
+      eventType: 'schlussel.push.session_revoked.v1',
+      userId,
+      payload: JSON.stringify({ recipientId: userId, sessionId }),
+      correlationId: id,
+      createdAt: now,
+      nextAttemptAt: now,
+    }).run()
+  }
+}
+
+function revokeSessions(userId: string, sessionIds: readonly string[]): void {
+  if (sessionIds.length === 0) return
+  db.transaction((tx) => {
+    for (const sessionId of sessionIds) {
+      tx.delete(refreshTokens).where(and(
+        eq(refreshTokens.id, sessionId),
+        eq(refreshTokens.userId, userId),
+      )).run()
+    }
+    insertSessionCleanup(tx, userId, sessionIds)
+  })
+}
 
 // Helpers — cookie management without external deps
 function setCookieHeader(c: Parameters<typeof clearCookie>[0], token: string) {

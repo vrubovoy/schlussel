@@ -102,6 +102,13 @@ describe('signAccessToken', () => {
     expect(payload['token_use']).toBe('access')
   })
 
+  it('includes and verifies a stable session claim when supplied', async () => {
+    const token = await signAccessToken({ ...ALICE, sessionId: 'session-123' })
+    const encoded = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString())
+    expect(encoded['sid']).toBe('session-123')
+    expect((await verifyAccessToken(token)).sessionId).toBe('session-123')
+  })
+
   it('payload contains exp (expiry claim)', async () => {
     const token = await signAccessToken(ALICE)
     const payload = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString())

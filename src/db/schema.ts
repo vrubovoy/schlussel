@@ -77,6 +77,8 @@ export const authCodes = sqliteTable('auth_codes', {
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   codeHash: text('code_hash').notNull().unique(),
   codeChallenge: text('code_challenge').notNull(),
+  // Nullable only for authorization codes created before session binding.
+  sessionId: text('session_id'),
   expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 })
