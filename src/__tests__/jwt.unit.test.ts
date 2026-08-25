@@ -26,6 +26,7 @@ let signRefreshToken: (userId: string) => Promise<string>
 let verifyToken: (token: string) => Promise<Record<string, unknown>>
 let verifyAccessToken: (token: string) => Promise<Record<string, unknown>>
 let signExportToken: (userId: string, service: string, jobId: string) => Promise<string>
+let signDeletionToken: (userId: string, service: string, jobId: string) => Promise<string>
 let privateKey: CryptoKey
 
 const ALICE: JwtPayload = {
@@ -46,10 +47,29 @@ beforeAll(async () => {
   verifyToken = jwtModule.verifyToken
   verifyAccessToken = jwtModule.verifyAccessToken
   signExportToken = jwtModule.signExportToken
+  signDeletionToken = jwtModule.signDeletionToken
 })
 
 afterAll(() => {
   try { rmSync(KEYS_DIR, { recursive: true, force: true }) } catch { /* ignore */ }
+})
+
+describe('signDeletionToken', () => {
+  it('binds a short-lived token to one service, subject, job, scope, and token use', async () => {
+    const token = await signDeletionToken('deleted-user', 'schrank', 'deletion-job')
+    const payload = await verifyToken(token)
+    expect(payload).toMatchObject({
+      sub: 'deleted-user',
+      tokenUse: 'deletion',
+      jobId: 'deletion-job',
+      scope: 'account:delete',
+      audience: 'hof-deletion:schrank',
+    })
+    expect(typeof payload['jti']).toBe('string')
+    const secondsRemaining = (payload['exp'] as number) - Math.floor(Date.now() / 1000)
+    expect(secondsRemaining).toBeGreaterThanOrEqual(299)
+    expect(secondsRemaining).toBeLessThanOrEqual(300)
+  })
 })
 
 // ── signAccessToken ───────────────────────────────────────────────────────────

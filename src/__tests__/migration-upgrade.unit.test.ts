@@ -55,6 +55,12 @@ describe('database migration upgrade', () => {
     expect(sqlite.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'export_job_events'`).get()).toEqual({
       name: 'export_job_events',
     })
+    expect(sqlite.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'deletion_jobs'`).get()).toEqual({
+      name: 'deletion_jobs',
+    })
+    expect(sqlite.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'deletion_job_targets'`).get()).toEqual({
+      name: 'deletion_job_targets',
+    })
     sqlite.close()
   })
 })

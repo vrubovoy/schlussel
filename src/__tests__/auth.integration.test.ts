@@ -76,6 +76,8 @@ beforeAll(async () => {
 
 beforeEach(() => {
   // Delete child rows first to satisfy FK, then parent.
+  sqlite.exec('DELETE FROM deletion_job_targets')
+  sqlite.exec('DELETE FROM deletion_jobs')
   sqlite.exec('DELETE FROM refresh_tokens')
   sqlite.exec('DELETE FROM users')
 })
@@ -1420,6 +1422,7 @@ describe('DELETE /auth/account', () => {
   })
 
   it('returns 200 with { ok: true } on success', async () => {
+    const userId = JSON.parse(Buffer.from(accessToken.split('.')[1]!, 'base64url').toString())['sub'] as string
     const res = await del(
       '/auth/account',
       { password: 'password123' },
@@ -1428,6 +1431,24 @@ describe('DELETE /auth/account', () => {
     expect(res.status).toBe(200)
     const body = await res.json() as Record<string, unknown>
     expect(body['ok']).toBe(true)
+    expect(sqlite.prepare('SELECT user_id, initiated_by, status FROM deletion_jobs').get()).toEqual({
+      user_id: userId, initiated_by: 'self', status: 'pending',
+    })
+    expect(sqlite.prepare('SELECT count(*) AS count FROM deletion_job_targets').get()).toEqual({ count: 6 })
+  })
+
+  it('rolls back identity deletion when durable saga persistence fails', async () => {
+    sqlite.exec(`CREATE TRIGGER fail_deletion_job BEFORE INSERT ON deletion_jobs BEGIN SELECT RAISE(ABORT, 'fail'); END`)
+    try {
+      const response = await del('/auth/account', { password: 'password123' }, {
+        Authorization: `Bearer ${accessToken}`,
+      })
+      expect(response.status).toBe(500)
+      const me = await app.request('/auth/me', { headers: { Authorization: `Bearer ${accessToken}` } })
+      expect(me.status).toBe(200)
+    } finally {
+      sqlite.exec('DROP TRIGGER fail_deletion_job')
+    }
   })
 
   it('after deletion, a fresh register with the same email succeeds', async () => {

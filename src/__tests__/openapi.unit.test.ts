@@ -201,13 +201,14 @@ describe('openApiDocument', () => {
     for (const path of [
       '/invites', '/invites/{id}', '/admin/users', '/admin/users/{id}/role',
       '/admin/users/{id}/sessions', '/admin/users/{id}', '/admin/stats',
+      '/admin/deletion-jobs', '/admin/deletion-jobs/{id}',
     ]) {
       expect(paths).toContain(path)
     }
   })
 
   it('marks every admin-only path as requiring bearer auth', () => {
-    for (const path of ['/invites', '/admin/users', '/admin/stats']) {
+    for (const path of ['/invites', '/admin/users', '/admin/stats', '/admin/deletion-jobs']) {
       const item = openApiDocument.paths?.[path]
       const operation = item?.post ?? item?.get ?? item?.patch ?? item?.delete
       expect(operation?.security).toEqual([{ bearerAuth: [] }])

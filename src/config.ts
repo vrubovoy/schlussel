@@ -192,3 +192,51 @@ export function loadExportConfig(env: NodeJS.ProcessEnv = process.env): ExportCo
     minFreeBytes,
   }
 }
+
+export interface DeletionConfig {
+  serviceUrls: Readonly<Record<'kuvert' | 'tafel' | 'zettel' | 'glocke' | 'schrank' | 'herold', string>>
+  dispatchIntervalMs: number
+  leaseMs: number
+  fetchTimeoutMs: number
+  workerStopTimeoutMs: number
+  maxAttempts: number
+  baseDelayMs: number
+  maxDelayMs: number
+}
+
+function deletionServiceUrl(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
+  const raw = env[name] ?? fallback
+  let url: URL
+  try { url = new URL(raw) } catch { throw new Error(`${name} must be a valid internal deletion URL`) }
+  if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password ||
+    url.pathname !== '/internal/v1/account-deletions' || url.search || url.hash) {
+    throw new Error(`${name} must end in /internal/v1/account-deletions`)
+  }
+  return url.toString()
+}
+
+export function loadDeletionConfig(env: NodeJS.ProcessEnv = process.env): DeletionConfig {
+  const leaseMs = positiveInteger(env, 'DELETION_LEASE_MS', 30_000)
+  const fetchTimeoutMs = positiveInteger(env, 'DELETION_FETCH_TIMEOUT_MS', 10_000)
+  const baseDelayMs = positiveInteger(env, 'DELETION_RETRY_BASE_DELAY_MS', 1_000)
+  const maxDelayMs = positiveInteger(env, 'DELETION_RETRY_MAX_DELAY_MS', 15 * 60_000)
+  if (fetchTimeoutMs >= leaseMs) throw new Error('DELETION_FETCH_TIMEOUT_MS must be shorter than DELETION_LEASE_MS')
+  if (maxDelayMs < baseDelayMs) throw new Error('DELETION_RETRY_MAX_DELAY_MS must be at least DELETION_RETRY_BASE_DELAY_MS')
+  return {
+    serviceUrls: {
+      kuvert: deletionServiceUrl(env, 'KUVERT_DELETION_URL', 'http://kuvert-backend:3001/internal/v1/account-deletions'),
+      tafel: deletionServiceUrl(env, 'TAFEL_DELETION_URL', 'http://tafel-backend:3002/internal/v1/account-deletions'),
+      zettel: deletionServiceUrl(env, 'ZETTEL_DELETION_URL', 'http://zettel-backend:3003/internal/v1/account-deletions'),
+      glocke: deletionServiceUrl(env, 'GLOCKE_DELETION_URL', 'http://glocke-backend:3004/internal/v1/account-deletions'),
+      schrank: deletionServiceUrl(env, 'SCHRANK_DELETION_URL', 'http://schrank-backend:3005/internal/v1/account-deletions'),
+      herold: deletionServiceUrl(env, 'HEROLD_DELETION_URL', 'http://herold-backend:3006/internal/v1/account-deletions'),
+    },
+    dispatchIntervalMs: positiveInteger(env, 'DELETION_DISPATCH_INTERVAL_MS', 1_000),
+    leaseMs,
+    fetchTimeoutMs,
+    workerStopTimeoutMs: positiveInteger(env, 'DELETION_WORKER_STOP_TIMEOUT_MS', 5_000),
+    maxAttempts: positiveInteger(env, 'DELETION_MAX_ATTEMPTS', 8),
+    baseDelayMs,
+    maxDelayMs,
+  }
+}

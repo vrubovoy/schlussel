@@ -636,6 +636,37 @@ registry.registerPath({
   },
 })
 
+const deletionTargetSchema = z.object({
+  jobId: z.string(),
+  service: z.enum(['kuvert', 'tafel', 'zettel', 'glocke', 'schrank', 'herold']),
+  status: z.enum(['pending', 'inflight', 'delivered', 'permanent']),
+  attempts: z.number().int().nonnegative(),
+  nextAttemptAt: z.number().nullable(),
+  leaseId: z.string().nullable(),
+  leaseUntil: z.number().nullable(),
+  deliveredAt: z.number().nullable(),
+  lastError: z.string().nullable(),
+})
+const deletionJobSchema = z.object({
+  id: z.string(), userId: z.string(), initiatedBy: z.enum(['self', 'admin']),
+  status: z.enum(['pending', 'running', 'completed', 'failed']),
+  targets: z.array(deletionTargetSchema),
+})
+
+registry.registerPath({
+  method: 'get', path: '/admin/deletion-jobs', summary: 'List recent account deletion saga status (admin only)',
+  security: [{ bearerAuth: [] }],
+  responses: { 200: { description: 'Recent deletion jobs and target attempts', content: { 'application/json': { schema: z.array(deletionJobSchema) } } } },
+})
+registry.registerPath({
+  method: 'get', path: '/admin/deletion-jobs/{id}', summary: 'Get one account deletion saga status (admin only)',
+  security: [{ bearerAuth: [] }], request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: { description: 'Deletion job and target attempts', content: { 'application/json': { schema: deletionJobSchema } } },
+    404: { description: 'Deletion job not found', content: { 'application/json': { schema: errorSchema } } },
+  },
+})
+
 export const openApiDocument = new OpenApiGeneratorV3(registry.definitions).generateDocument({
   openapi: '3.0.0',
   info: { title: 'Schlüssel Auth API', version: '0.1.0' },

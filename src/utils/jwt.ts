@@ -96,6 +96,24 @@ export async function signExportToken(
     .sign(getPrivateKey())
 }
 
+export async function signDeletionToken(
+  userId: string,
+  service: string,
+  jobId: string,
+  now: Date = new Date(),
+): Promise<string> {
+  const issuedAt = Math.floor(now.getTime() / 1_000)
+  return new SignJWT({ token_use: 'deletion', scope: 'account:delete', job_id: jobId })
+    .setProtectedHeader({ alg: 'RS256', kid: 'schloss-1' })
+    .setSubject(userId)
+    .setAudience(`hof-deletion:${service}`)
+    .setJti(randomUUID())
+    .setIssuedAt(issuedAt)
+    .setIssuer(ISSUER)
+    .setExpirationTime(issuedAt + 5 * 60)
+    .sign(getPrivateKey())
+}
+
 export async function verifyToken(token: string): Promise<VerifiedTokenPayload> {
   const { payload } = await jwtVerify(token, getPublicKey(), {
     algorithms: ['RS256'],

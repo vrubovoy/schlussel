@@ -4,6 +4,11 @@ Brief log of notable changes, grouped by theme — not a full commit history
 (see `git log` for that). New entries get appended under the section they
 fit best; add a new section if none fits.
 
+## Account lifecycle
+- Added transactionally enqueued self/admin account deletion jobs with six
+  fixed service targets, per-target short-lived JWTs, leased bounded retries,
+  terminal status, and admin observability.
+
 ## Notifications
 - Added stable `sid` claims to session-backed access tokens and durable,
   per-session Glocke cleanup events for logout, password changes, account

@@ -217,6 +217,10 @@ See `.env.example` for the API. The important ones:
 | `EXPORT_USER_COOLDOWN_MS` / `EXPORT_MAX_RETAINED_JOBS_PER_USER` | Per-user creation cooldown and retained-job cap |
 | `EXPORT_MAX_RETAINED_ARTIFACT_BYTES_PER_USER` | Per-user retained ZIP byte cap |
 | `EXPORT_STORAGE_QUOTA_BYTES` / `EXPORT_MIN_FREE_BYTES` | Global export-directory quota and filesystem free-space reserve, checked before writes |
+| `KUVERT_DELETION_URL` / `TAFEL_DELETION_URL` / `ZETTEL_DELETION_URL` / `GLOCKE_DELETION_URL` / `SCHRANK_DELETION_URL` / `HEROLD_DELETION_URL` | Deployment-owned internal account deletion endpoints; request data cannot override these URLs |
+| `DELETION_DISPATCH_INTERVAL_MS` / `DELETION_LEASE_MS` / `DELETION_FETCH_TIMEOUT_MS` | Deletion polling, fenced lease, and request timings; timeout must be shorter than the lease |
+| `DELETION_MAX_ATTEMPTS` / `DELETION_RETRY_BASE_DELAY_MS` / `DELETION_RETRY_MAX_DELAY_MS` | Positive bounded account deletion retry and full-jitter backoff settings |
+| `DELETION_WORKER_STOP_TIMEOUT_MS` | Bound on graceful deletion-worker shutdown (default `5000`) |
 
 Password changes commit a `schlussel.security.password_changed.v1` event in the
 same SQLite transaction as the password and replacement session. A lease-based
