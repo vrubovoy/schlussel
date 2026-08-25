@@ -27,7 +27,7 @@ interface JobResponse {
   downloadUrl: string | null
   error: string | null
   services: Array<{
-    service: 'schlussel' | 'kuvert' | 'tafel' | 'zettel' | 'glocke'
+    service: 'schlussel' | 'kuvert' | 'tafel' | 'zettel' | 'glocke' | 'schrank' | 'herold'
     status: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled'
     attempts: number
     bytes: number | null
@@ -215,7 +215,7 @@ describe('platform export job HTTP API', () => {
     })
     expect(job.id).toMatch(/^[A-Za-z0-9_-]+$/)
     expect(job.services.map(({ service }) => service)).toEqual([
-      'schlussel', 'kuvert', 'tafel', 'zettel', 'glocke',
+      'schlussel', 'kuvert', 'tafel', 'zettel', 'glocke', 'schrank', 'herold',
     ])
     expect(job.services).toEqual(job.services.map((service) => ({
       ...service,
@@ -232,7 +232,33 @@ describe('platform export job HTTP API', () => {
     expect(row).toEqual({ owner_user_id: expect.any(String), status: 'queued' })
     expect(sqlite.prepare(
       'SELECT count(*) AS count FROM export_job_services WHERE job_id = ?',
-    ).get(job.id)).toEqual({ count: 5 })
+    ).get(job.id)).toEqual({ count: 7 })
+  })
+
+  it('returns retained five-service jobs without adding or changing rows', async () => {
+    const { accessToken, userId } = await registerAndLogin('alice@example.com', 'Alice')
+    const id = 'historical-five-service-job'
+    sqlite.prepare(`
+      INSERT INTO export_jobs (id, owner_user_id, status, created_at, completed_at)
+      VALUES (?, ?, 'completed', ?, ?)
+    `).run(id, userId, Date.now() - 120_000, Date.now() - 60_000)
+    const insertService = sqlite.prepare(`
+      INSERT INTO export_job_services (job_id, service, status, attempts)
+      VALUES (?, ?, 'succeeded', 1)
+    `)
+    const historicalServices = ['schlussel', 'kuvert', 'tafel', 'zettel', 'glocke']
+    for (const service of historicalServices) insertService.run(id, service)
+
+    const before = sqlite.prepare(`
+      SELECT service, status, attempts FROM export_job_services WHERE job_id = ? ORDER BY rowid
+    `).all(id)
+    const response = await request('GET', `/auth/export-jobs/${id}`, accessToken)
+
+    expect(response.status).toBe(200)
+    expect((await response.json() as JobResponse).services.map(({ service }) => service)).toEqual(historicalServices)
+    expect(sqlite.prepare(`
+      SELECT service, status, attempts FROM export_job_services WHERE job_id = ? ORDER BY rowid
+    `).all(id)).toEqual(before)
   })
 
   it('rejects user-supplied service URLs instead of extending the static registry', async () => {
@@ -459,7 +485,7 @@ describe('platform export job HTTP API', () => {
     const completed = await (await request('GET', `/auth/export-jobs/${job.id}`, accessToken)).json() as JobResponse
     expect(completed.status).toBe('completed')
     expect(completed.error).toBeNull()
-    expect(completed.services.map(({ attempts }) => attempts)).toEqual([1, 2, 1, 1, 1])
+    expect(completed.services.map(({ attempts }) => attempts)).toEqual([1, 2, 1, 1, 1, 1, 1])
     const retryAudit = sqlite.prepare(`
       SELECT metadata FROM export_job_events
       WHERE job_id = ? AND event_type = 'retried' ORDER BY created_at DESC, rowid DESC LIMIT 1

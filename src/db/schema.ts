@@ -206,7 +206,7 @@ export const exportJobs = sqliteTable('export_jobs', {
 
 export const exportJobServices = sqliteTable('export_job_services', {
   jobId: text('job_id').notNull().references(() => exportJobs.id, { onDelete: 'cascade' }),
-  service: text('service', { enum: ['schlussel', 'kuvert', 'tafel', 'zettel', 'glocke'] }).notNull(),
+  service: text('service', { enum: ['schlussel', 'kuvert', 'tafel', 'zettel', 'glocke', 'schrank', 'herold'] }).notNull(),
   status: text('status', {
     enum: ['pending', 'running', 'succeeded', 'failed', 'cancelled'],
   }).notNull().default('pending'),
@@ -230,7 +230,7 @@ export const exportJobServices = sqliteTable('export_job_services', {
 export const exportJobServiceAttempts = sqliteTable('export_job_service_attempts', {
   id: text('id').primaryKey(),
   jobId: text('job_id').notNull().references(() => exportJobs.id, { onDelete: 'cascade' }),
-  service: text('service', { enum: ['schlussel', 'kuvert', 'tafel', 'zettel', 'glocke'] }).notNull(),
+  service: text('service', { enum: ['schlussel', 'kuvert', 'tafel', 'zettel', 'glocke', 'schrank', 'herold'] }).notNull(),
   attempt: integer('attempt').notNull(),
   status: text('status', { enum: ['running', 'succeeded', 'failed', 'cancelled'] }).notNull(),
   startedAt: integer('started_at').notNull(),

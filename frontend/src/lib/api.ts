@@ -63,7 +63,7 @@ export interface ExportJob {
   downloadUrl: string | null
   error: string | null
   services: Array<{
-    service: 'schlussel' | 'kuvert' | 'tafel' | 'zettel' | 'glocke'
+    service: 'schlussel' | 'kuvert' | 'tafel' | 'zettel' | 'glocke' | 'schrank' | 'herold'
     status: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled'
     attempts: number
     bytes: number | null

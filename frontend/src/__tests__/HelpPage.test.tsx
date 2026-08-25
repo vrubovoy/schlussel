@@ -26,6 +26,13 @@ describe('HelpPage', () => {
     expect(screen.getByText('Тема оформления')).toBeInTheDocument()
   })
 
+  it('documents Schrank and Herold in the platform archive', () => {
+    render(<HelpPage />)
+    const exportGuide = screen.getByText(/ZIP всех сервисов/i)
+    expect(exportGuide).toHaveTextContent('Schrank')
+    expect(exportGuide).toHaveTextContent('Herold')
+  })
+
   it('renders "Первые шаги" as a heading followed by a visibly numbered ordered list of the three steps', () => {
     render(<HelpPage />)
 

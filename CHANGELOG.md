@@ -37,6 +37,9 @@ fit best; add a new section if none fits.
   transport.
 
 ## Data export
+- Completed the fixed platform archive registry with Schrank and Herold,
+  including distinct export-token audiences and validated deployment URLs. New
+  jobs have seven service rows while retained five-service jobs remain unchanged.
 - Retained the synchronous Schlüssel-only `GET /export` JSON response and added
   durable, owner-scoped `/export-jobs` for an asynchronous ZIP assembled from
   Schlüssel, Kuvert, Tafel, Zettel, and Glocke through a fixed internal registry.

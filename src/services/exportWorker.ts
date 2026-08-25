@@ -22,7 +22,7 @@ import { sqlite } from '../db/index.js'
 import { signExportToken } from '../utils/jwt.js'
 import { createSchlusselSnapshot } from './schlusselExport.js'
 
-export type ExportServiceName = 'schlussel' | 'kuvert' | 'tafel' | 'zettel' | 'glocke'
+export type ExportServiceName = 'schlussel' | 'kuvert' | 'tafel' | 'zettel' | 'glocke' | 'schrank' | 'herold'
 
 export interface ExportServiceDefinition {
   service: ExportServiceName
@@ -31,13 +31,18 @@ export interface ExportServiceDefinition {
   url?: string
 }
 
-export function createExportServices(config: Pick<ExportConfig, 'kuvertUrl' | 'tafelUrl' | 'zettelUrl' | 'glockeUrl'>) {
+export function createExportServices(config: Pick<
+  ExportConfig,
+  'kuvertUrl' | 'tafelUrl' | 'zettelUrl' | 'glockeUrl' | 'schrankUrl' | 'heroldUrl'
+>) {
   return Object.freeze([
     Object.freeze({ service: 'schlussel', audience: 'hof-service:schlussel', kind: 'local' }),
     Object.freeze({ service: 'kuvert', audience: 'hof-service:kuvert', kind: 'http', url: config.kuvertUrl }),
     Object.freeze({ service: 'tafel', audience: 'hof-service:tafel', kind: 'http', url: config.tafelUrl }),
     Object.freeze({ service: 'zettel', audience: 'hof-service:zettel', kind: 'http', url: config.zettelUrl }),
     Object.freeze({ service: 'glocke', audience: 'hof-service:glocke', kind: 'http', url: config.glockeUrl }),
+    Object.freeze({ service: 'schrank', audience: 'hof-service:schrank', kind: 'http', url: config.schrankUrl }),
+    Object.freeze({ service: 'herold', audience: 'hof-service:herold', kind: 'http', url: config.heroldUrl }),
   ] satisfies ExportServiceDefinition[])
 }
 

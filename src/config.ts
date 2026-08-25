@@ -111,6 +111,8 @@ export interface ExportConfig {
   tafelUrl: string
   zettelUrl: string
   glockeUrl: string
+  schrankUrl: string
+  heroldUrl: string
   dispatchIntervalMs: number
   requestTimeoutMs: number
   leaseMs: number
@@ -177,6 +179,8 @@ export function loadExportConfig(env: NodeJS.ProcessEnv = process.env): ExportCo
     tafelUrl: exportServiceUrl(env, 'TAFEL_EXPORT_URL', 'http://tafel-backend:3002/exports/me'),
     zettelUrl: exportServiceUrl(env, 'ZETTEL_EXPORT_URL', 'http://zettel-backend:3003/exports/me'),
     glockeUrl: exportServiceUrl(env, 'GLOCKE_EXPORT_URL', 'http://glocke-backend:3004/exports/me'),
+    schrankUrl: exportServiceUrl(env, 'SCHRANK_EXPORT_URL', 'http://schrank-backend:3005/exports/me'),
+    heroldUrl: exportServiceUrl(env, 'HEROLD_EXPORT_URL', 'http://herold-backend:3006/exports/me'),
     dispatchIntervalMs: positiveInteger(env, 'EXPORT_DISPATCH_INTERVAL_MS', 1_000),
     requestTimeoutMs,
     leaseMs,

@@ -4,6 +4,8 @@ import { loadExportConfig } from '../config.js'
 describe('export startup configuration', () => {
   it('uses conservative concurrency, retention, and filesystem safety defaults', () => {
     expect(loadExportConfig({})).toMatchObject({
+      schrankUrl: 'http://schrank-backend:3005/exports/me',
+      heroldUrl: 'http://herold-backend:3006/exports/me',
       maxConcurrency: 1,
       userCooldownMs: 60_000,
       maxRetainedJobsPerUser: 3,
@@ -17,6 +19,8 @@ describe('export startup configuration', () => {
     ['caller-like URL query', { KUVERT_EXPORT_URL: 'http://kuvert:3001/exports/me?url=https://evil.invalid' }],
     ['credentials in URL', { TAFEL_EXPORT_URL: 'http://user:password@tafel:3002/exports/me' }],
     ['wrong path', { ZETTEL_EXPORT_URL: 'http://zettel:3003/arbitrary' }],
+    ['unsafe Schrank URL', { SCHRANK_EXPORT_URL: 'file:///tmp/schrank-export' }],
+    ['unsafe Herold URL', { HEROLD_EXPORT_URL: 'https://user:secret@herold:3006/exports/me' }],
     ['negative cooldown', { EXPORT_USER_COOLDOWN_MS: '-1' }],
     ['zero retained jobs', { EXPORT_MAX_RETAINED_JOBS_PER_USER: '0' }],
     ['per-user bytes below aggregate', { EXPORT_MAX_RETAINED_ARTIFACT_BYTES_PER_USER: '1000' }],

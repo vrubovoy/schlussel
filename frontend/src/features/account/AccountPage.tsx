@@ -941,7 +941,7 @@ function DataExportCard({
         <h2 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>Архив данных платформы</h2>
       </div>
       <p style={{ margin: '0 0 1rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-        Собирает приватный ZIP из Schlüssel, Kuvert, Tafel, Zettel и Glocke. Архив создаётся в фоне и удаляется после истечения срока хранения.
+        Собирает приватный ZIP из Schlüssel, Kuvert, Tafel, Zettel, Glocke, Schrank и Herold. Архив создаётся в фоне и удаляется после истечения срока хранения.
       </p>
       {jobError && (
         <div style={{ marginBottom: '1rem', padding: '0.625rem 0.75rem', background: 'var(--danger-muted)', border: '1px solid var(--danger)', borderRadius: 8, fontSize: '0.8125rem', color: 'var(--danger)' }}>
