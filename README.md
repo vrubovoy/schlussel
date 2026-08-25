@@ -14,6 +14,7 @@ self-hosted personal services:
 - [`glocke`](https://github.com/zudaR107/glocke) — notification center
 - [`schrank`](https://github.com/zudaR107/schrank) — file storage with nested folders
 - [`herold`](https://github.com/zudaR107/herold) — webmail client for external IMAP/SMTP accounts
+- [`wachter`](https://github.com/vrubovoy/wachter) — server resource monitoring
 - [`tor`](https://github.com/zudaR107/tor) — reverse-proxy gateway
 - [`schloss-ui`](https://github.com/zudaR107/schloss-ui) — shared frontend components
 - [`schloss-server-kit`](https://github.com/zudaR107/schloss-server-kit) — shared backend auth/CORS/notification transport kit
