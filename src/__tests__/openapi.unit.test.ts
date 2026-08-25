@@ -40,6 +40,15 @@ describe('openApiDocument', () => {
     expect(openApiDocument.paths?.['/export']).toMatchObject({ get: {} })
   })
 
+  it('documents the seven-service export registry and historical job shape', () => {
+    const operation = openApiDocument.paths?.['/export-jobs']?.post
+    const documentText = JSON.stringify(operation)
+    expect(documentText).toContain('schrank')
+    expect(documentText).toContain('herold')
+    expect(operation?.description).toContain('seven services')
+    expect(operation?.description).toContain('historical jobs keep their original service rows')
+  })
+
   it('requires bearer auth for every profile and account-data operation', () => {
     for (const operation of [
       openApiDocument.paths?.['/profile']?.get,

@@ -21,7 +21,7 @@ process.env['KEYS_DIR'] = KEYS_DIR
 process.env['EXPORT_DIR'] = EXPORT_DIR
 process.env['JWT_ISSUER'] = 'schlussel'
 
-type ServiceName = 'schlussel' | 'kuvert' | 'tafel' | 'zettel' | 'glocke'
+type ServiceName = 'schlussel' | 'kuvert' | 'tafel' | 'zettel' | 'glocke' | 'schrank' | 'herold'
 
 interface ServiceDefinition {
   service: ServiceName
@@ -262,6 +262,8 @@ describe('export worker service delegation', () => {
       { service: 'tafel', audience: 'hof-service:tafel', kind: 'http', url: 'http://tafel-backend:3002/exports/me' },
       { service: 'zettel', audience: 'hof-service:zettel', kind: 'http', url: 'http://zettel-backend:3003/exports/me' },
       { service: 'glocke', audience: 'hof-service:glocke', kind: 'http', url: 'http://glocke-backend:3004/exports/me' },
+      { service: 'schrank', audience: 'hof-service:schrank', kind: 'http', url: 'http://schrank-backend:3005/exports/me' },
+      { service: 'herold', audience: 'hof-service:herold', kind: 'http', url: 'http://herold-backend:3006/exports/me' },
     ])
     expect(Object.isFrozen(EXPORT_SERVICES)).toBe(true)
     expect(EXPORT_SERVICES.every((service) => Object.isFrozen(service))).toBe(true)
@@ -278,7 +280,9 @@ describe('export worker service delegation', () => {
 
     await dispatchExportJobBatch(options({ fetch: fetchMock }))
 
-    expect(requests.map(({ service }) => service).sort()).toEqual(['kuvert', 'tafel', 'zettel', 'glocke'].sort())
+    expect(requests.map(({ service }) => service).sort()).toEqual([
+      'kuvert', 'tafel', 'zettel', 'glocke', 'schrank', 'herold',
+    ].sort())
     const tokens = requests.map(({ service, init }) => {
       expect(init?.method).toBe('GET')
       expect(init?.redirect).toBe('error')
@@ -356,7 +360,7 @@ describe('export worker service delegation', () => {
 
     await dispatchExportJobBatch(options({ fetch: fetchMock }))
 
-    expect(redirects).toEqual(['error', 'error', 'error', 'error'])
+    expect(redirects).toEqual(['error', 'error', 'error', 'error', 'error', 'error'])
     expect(jobRow(id).status).toBe('partial')
     expect(serviceRows(id).filter(({ service }) => service !== 'schlussel').every(({ status }) => status === 'failed')).toBe(true)
   })
@@ -410,7 +414,7 @@ describe('export worker resource bounds and recovery', () => {
 
     await dispatchExportJobBatch(options({ fetch: fetchMock, requestTimeoutMs: 10 }))
 
-    expect(aborted).toBe(4)
+    expect(aborted).toBe(6)
     expect(jobRow(id).status).toBe('partial')
     for (const row of serviceRows(id).filter(({ service }) => service !== 'schlussel')) {
       expect(row.status).toBe('failed')
@@ -585,6 +589,7 @@ describe('export archive and retention', () => {
     expect([...entries.keys()]).toEqual([
       'manifest.json', 'README.txt', 'services/schlussel.json', 'services/kuvert.json',
       'services/tafel.json', 'services/zettel.json', 'services/glocke.json',
+      'services/schrank.json', 'services/herold.json',
     ])
     for (const name of entries.keys()) {
       expect(name).not.toContain('..')
@@ -615,7 +620,7 @@ describe('export archive and retention', () => {
     })
     expect(manifest).not.toHaveProperty('ownerId')
     expect(manifest.services.map(({ service }) => service)).toEqual([
-      'schlussel', 'kuvert', 'tafel', 'zettel', 'glocke',
+      'schlussel', 'kuvert', 'tafel', 'zettel', 'glocke', 'schrank', 'herold',
     ])
     for (const service of manifest.services) {
       const file = `services/${service.service}.json`
@@ -640,7 +645,7 @@ describe('export archive and retention', () => {
     await dispatchExportJobBatch(options({
       fetch: async (input) => {
         const service = serviceFromUrl(input)
-        return service === 'zettel'
+        return service === 'schrank' || service === 'herold'
           ? new Response('database password=do-not-store', { status: 503 })
           : Response.json(envelope(service))
       },
@@ -648,21 +653,28 @@ describe('export archive and retention', () => {
 
     expect(jobRow(id).status).toBe('partial')
     const entries = readZip(archive(id))
-    expect(entries.has('services/zettel.json')).toBe(false)
-    expect(entries.has('errors/zettel.json')).toBe(true)
+    expect(entries.has('services/schrank.json')).toBe(false)
+    expect(entries.has('services/herold.json')).toBe(false)
+    expect(entries.has('errors/schrank.json')).toBe(true)
+    expect(entries.has('errors/herold.json')).toBe(true)
     const manifest = JSON.parse(entries.get('manifest.json')!.toString('utf8')) as {
       status: string
       services: Array<Record<string, unknown>>
     }
     expect(manifest.status).toBe('partial')
-    expect(manifest.services.find(({ service }) => service === 'zettel')).toMatchObject({
-      service: 'zettel',
+    expect(manifest.services.find(({ service }) => service === 'schrank')).toMatchObject({
+      service: 'schrank',
       status: 'failed',
       file: null,
       bytes: null,
       sha256: null,
       error: 'Service returned HTTP 503',
-      errorFile: 'errors/zettel.json',
+      errorFile: 'errors/schrank.json',
+    })
+    expect(manifest.services.find(({ service }) => service === 'herold')).toMatchObject({
+      service: 'herold',
+      status: 'failed',
+      errorFile: 'errors/herold.json',
     })
     expect(JSON.stringify(manifest)).not.toContain('database password')
     expect((await jsonRequest('GET', `/auth/export-jobs/${id}/download`, accessToken)).status).toBe(200)

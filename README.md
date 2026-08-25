@@ -120,16 +120,19 @@ to be upfront about which parts are real today and which are groundwork:
   yet to hand a connect flow off to.
 - **Data export** keeps `GET /export` for an immediate Schlüssel-only JSON snapshot. The
   `/export-jobs` API creates a durable owner-scoped platform ZIP from the fixed internal
-  Schlüssel/Kuvert/Tafel/Zettel/Glocke registry. It exposes progress, cancellation,
+  Schlüssel/Kuvert/Tafel/Zettel/Glocke/Schrank/Herold registry. It exposes progress, cancellation,
   failed-service retry, expiring authenticated downloads, and partial archives.
 
 ### Data export contracts
 
 The two download paths are intentionally separate. `GET /export` remains the synchronous,
-direct JSON export of Schlüssel-owned account data. Kuvert, Tafel, Zettel, and Glocke each
+direct JSON export of Schlüssel-owned account data. Kuvert, Tafel, Zettel, Glocke, Schrank,
+and Herold each
 retain their own synchronous `GET /exports/me` JSON endpoint. Only Schlüssel's
 `POST /export-jobs` starts the asynchronous all-services ZIP; Schlüssel reads its own
-snapshot locally and calls the other four deployment-owned `/exports/me` URLs.
+snapshot locally and calls the other six deployment-owned `/exports/me` URLs. New jobs
+contain seven service rows; retained historical jobs keep their original five rows and
+remain readable without backfill.
 
 Remote calls use short-lived RS256 export delegations verified through the same JWKS and
 exact issuer as access tokens. A delegation must have `token_use: export`, the single exact
@@ -157,7 +160,7 @@ owner-only downloads send `Cache-Control: no-store, private`, `Pragma: no-cache`
 
 Exports contain sensitive personal data and should be stored, transferred, and deleted
 accordingly. The platform archive contains only user-facing account data owned by these
-five services. It excludes passwords and password hashes, access/refresh/delegation tokens,
+seven services. It excludes passwords and password hashes, access/refresh/delegation tokens,
 signing or HMAC keys, runtime configuration, logs, worker leases, notification inbox
 payloads/hashes, internal audit rows, and data belonging to other users.
 
@@ -210,7 +213,7 @@ See `.env.example` for the API. The important ones:
 | `GLOCKE_DISPATCH_INTERVAL_MS` / `GLOCKE_OUTBOX_LEASE_MS` / `GLOCKE_FETCH_TIMEOUT_MS` | Positive worker timings; fetch timeout must remain shorter than the lease |
 | `GLOCKE_WORKER_STOP_TIMEOUT_MS` | Bound on waiting for the active worker during shutdown (default `5000`) |
 | `GLOCKE_MAX_ATTEMPTS` / `GLOCKE_RETRY_BASE_DELAY_MS` / `GLOCKE_RETRY_MAX_DELAY_MS` | Positive durable retry limits and backoff bounds |
-| `KUVERT_EXPORT_URL` / `TAFEL_EXPORT_URL` / `ZETTEL_EXPORT_URL` / `GLOCKE_EXPORT_URL` | Deployment-owned internal `/exports/me` registry; request data can never override these URLs |
+| `KUVERT_EXPORT_URL` / `TAFEL_EXPORT_URL` / `ZETTEL_EXPORT_URL` / `GLOCKE_EXPORT_URL` / `SCHRANK_EXPORT_URL` / `HEROLD_EXPORT_URL` | Deployment-owned internal `/exports/me` registry; request data can never override these URLs |
 | `EXPORT_REQUEST_TIMEOUT_MS` / `EXPORT_LEASE_MS` / `EXPORT_DISPATCH_INTERVAL_MS` | Export request, fenced lease, and polling timings; request timeout must be shorter than the lease |
 | `EXPORT_MAX_SERVICE_BYTES` / `EXPORT_MAX_AGGREGATE_BYTES` / `EXPORT_MAX_CONCURRENCY` | Per-service, whole-job, and concurrency bounds |
 | `EXPORT_ARTIFACT_TTL_MS` / `EXPORT_WORKER_STOP_TIMEOUT_MS` | Artifact retention and graceful shutdown bounds |

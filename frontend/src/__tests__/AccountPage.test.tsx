@@ -1301,6 +1301,11 @@ describe('AccountPage — DataExportCard', () => {
     services: [
       { service: 'schlussel', status: 'succeeded', attempts: 1, bytes: 100, sha256: 'abc', error: null },
       { service: 'kuvert', status: 'failed', attempts: 1, bytes: null, sha256: null, error: 'Service returned HTTP 503' },
+      { service: 'tafel', status: 'succeeded', attempts: 1, bytes: 100, sha256: 'def', error: null },
+      { service: 'zettel', status: 'succeeded', attempts: 1, bytes: 100, sha256: 'ghi', error: null },
+      { service: 'glocke', status: 'succeeded', attempts: 1, bytes: 100, sha256: 'jkl', error: null },
+      { service: 'schrank', status: 'succeeded', attempts: 1, bytes: 100, sha256: 'mno', error: null },
+      { service: 'herold', status: 'succeeded', attempts: 1, bytes: 100, sha256: 'pqr', error: null },
     ],
   }
 
@@ -1341,9 +1346,17 @@ describe('AccountPage — DataExportCard', () => {
 
     await waitFor(() => expect(mockCreateExportJob).toHaveBeenCalledWith('token-abc'))
     expect(await screen.findByText('Готово частично')).toBeInTheDocument()
+    expect(screen.getByText('7/7')).toBeInTheDocument()
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100')
     expect(screen.getByRole('button', { name: /повторить ошибки/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /скачать zip/i })).toBeInTheDocument()
+  })
+
+  it('names Schrank and Herold in the seven-service archive copy', async () => {
+    await renderLoggedIn()
+    const copy = screen.getByText(/Собирает приватный ZIP/i)
+    expect(copy).toHaveTextContent('Schrank')
+    expect(copy).toHaveTextContent('Herold')
   })
 
   it('retries only the failed portion through the job retry API', async () => {

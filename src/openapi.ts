@@ -82,7 +82,7 @@ const connectedAccountSchema = z.object({
 })
 
 const exportJobServiceSchema = z.object({
-  service: z.enum(['schlussel', 'kuvert', 'tafel', 'zettel', 'glocke']),
+  service: z.enum(['schlussel', 'kuvert', 'tafel', 'zettel', 'glocke', 'schrank', 'herold']),
   status: z.enum(['pending', 'running', 'succeeded', 'failed', 'cancelled']),
   attempts: z.number().int().nonnegative(),
   bytes: z.number().int().nonnegative().nullable(),
@@ -426,7 +426,7 @@ registry.registerPath({
   method: 'post',
   path: '/export-jobs',
   summary: 'Create or return the current platform-wide export job',
-  description: 'Queues a durable owner-scoped ZIP export from the static Schlüssel/Kuvert/Tafel/Zettel/Glocke registry. At most one queued or running job exists per user. Each service takes its own local snapshot when called; this is not a distributed point-in-time transaction. Remote calls use non-expired RS256 delegations with the exact issuer, single service audience, token_use=export, data:export scope, and nonempty subject/job/token IDs. Export creation is subject to cooldown, retained-job, retained-byte, response-size, storage-quota, and free-space limits. Request bodies cannot provide service URLs or options.',
+  description: 'Queues a durable owner-scoped ZIP export from the static Schlüssel/Kuvert/Tafel/Zettel/Glocke/Schrank/Herold registry. New jobs contain all seven services; retained historical jobs keep their original service rows. At most one queued or running job exists per user. Each service takes its own local snapshot when called; this is not a distributed point-in-time transaction. Remote calls use non-expired RS256 delegations with the exact issuer, single service audience, token_use=export, data:export scope, and nonempty subject/job/token IDs. Export creation is subject to cooldown, retained-job, retained-byte, response-size, storage-quota, and free-space limits. Request bodies cannot provide service URLs or options.',
   security: [{ bearerAuth: [] }],
   request: { body: { required: false, content: { 'application/json': { schema: z.object({}).strict() } } } },
   responses: {
