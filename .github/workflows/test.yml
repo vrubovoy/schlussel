@@ -3,6 +3,7 @@ name: Test
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
 
 jobs:
@@ -69,11 +70,16 @@ jobs:
 
   publish:
     needs: [backend, frontend]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+      # Needed for keyless Cosign/OIDC signing and for the SBOM/provenance
+      # attestations below - both mint a short-lived Sigstore identity from
+      # this workflow run rather than a stored signing key.
+      id-token: write
+      attestations: write
     strategy:
       matrix:
         include:
@@ -88,17 +94,79 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4
 
+      - uses: sigstore/cosign-installer@v3
+
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # A release tag (vX.Y.Z) is a published, citable version - it must
+      # never silently move to point at different image content. `latest`
+      # and the per-commit sha tag are a floating/dev channel and are
+      # exempt from this check by design.
+      - name: Refuse to overwrite an existing release tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          if docker buildx imagetools inspect "ghcr.io/vrubovoy/${{ matrix.image }}:${tag}" >/dev/null 2>&1; then
+            echo "::error::ghcr.io/vrubovoy/${{ matrix.image }}:${tag} already exists - release tags are immutable, use a new version." >&2
+            exit 1
+          fi
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          image="ghcr.io/vrubovoy/${{ matrix.image }}"
+          tags=("$image:${GITHUB_SHA}")
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            tags+=("$image:latest")
+          elif [ "${GITHUB_REF#refs/tags/}" != "${GITHUB_REF}" ]; then
+            tags+=("$image:${GITHUB_REF#refs/tags/}")
+          fi
+          {
+            echo "tags<<EOF"
+            printf '%s\n' "${tags[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - uses: docker/build-push-action@v7
+        id: build
         with:
           context: .
           file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
           push: true
-          tags: |
-            ghcr.io/vrubovoy/${{ matrix.image }}:latest
-            ghcr.io/vrubovoy/${{ matrix.image }}:${{ github.sha }}
+          tags: ${{ steps.tags.outputs.tags }}
+
+      # Keyless: cosign mints a short-lived certificate from this workflow's
+      # own OIDC identity (no stored signing key) and records the signature
+      # in the public Rekor transparency log. Signs the immutable digest,
+      # not a mutable tag - `cosign verify` on any tag above resolves to
+      # this same signed digest.
+      - name: Sign image with keyless Cosign
+        run: cosign sign --yes "ghcr.io/vrubovoy/${{ matrix.image }}@${{ steps.build.outputs.digest }}"
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/vrubovoy/${{ matrix.image }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: false
+
+      - name: Attest SBOM
+        uses: actions/attest-sbom@v2
+        with:
+          subject-name: ghcr.io/vrubovoy/${{ matrix.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: sbom.spdx.json
+          push-to-registry: true
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ghcr.io/vrubovoy/${{ matrix.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
