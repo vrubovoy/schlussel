@@ -14,6 +14,7 @@ import {
 } from '../../lib/api'
 import { MAX_AVATAR_BYTES, readFileAsDataUrl } from '../../lib/avatar'
 import { readReturnTo, DEFAULT_APP_URL, type ReturnToResult } from '../../lib/returnTo'
+import { runtimeConfig } from '../../lib/runtimeConfig'
 import { validateName, validatePassword, validatePasswordsMatch } from '../../lib/validation'
 import { focusField, focusFirstError } from '../../lib/focusField'
 import { PasswordField } from '../auth/PasswordField'
@@ -633,7 +634,7 @@ const NOTIFICATION_OPTIONS: { key: 'notifyInApp' | 'notifyBrowserPush' | 'notify
 // flips the global intent flag Glocke's internal recipient contract reads
 // (see schlussel's routes/internal.ts). Same resolution pattern as
 // Header.tsx's own GLOCKE_ORIGIN constant.
-const GLOCKE_ORIGIN = import.meta.env.VITE_GLOCKE_URL || 'http://localhost:5177'
+const GLOCKE_ORIGIN = runtimeConfig.glockeUrl
 
 // notifyTelegram is still a stored preference with no running consumer yet
 // (see the schema.ts comment on that column) - its caption says so rather

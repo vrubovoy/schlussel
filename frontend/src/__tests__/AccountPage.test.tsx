@@ -246,7 +246,7 @@ describe('AccountPage — redirect to login (no valid session)', () => {
 
 describe('AccountPage — rendered content', () => {
   it('passes the authenticated page token to the shared Header Glocke request', async () => {
-    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.account.test')
+    stubRuntimeConfig('glockeUrl', 'https://glocke.account.test')
     await renderLoggedIn()
 
     await waitFor(() => expect(mockGlockeFetch).toHaveBeenCalled())
@@ -258,7 +258,7 @@ describe('AccountPage — rendered content', () => {
   })
 
   it('publishes a Header refresh to the page so account API actions use the replacement token', async () => {
-    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.account.test')
+    stubRuntimeConfig('glockeUrl', 'https://glocke.account.test')
     mockRefreshSession
       .mockResolvedValueOnce({ accessToken: 'expired-token' })
       .mockResolvedValue({ accessToken: 'fresh-token' })
@@ -332,7 +332,7 @@ describe('AccountPage — rendered content', () => {
 
 describe('AccountPage — back link', () => {
   it('renders a link to the return_to URL when it is present and allowed', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     await renderLoggedIn('?return_to=' + encodeURIComponent('https://kuvert.test/budget'))
     const link = document.querySelector('a[href="https://kuvert.test/budget"]')
     expect(link).toBeTruthy()
@@ -358,7 +358,7 @@ describe('AccountPage — back link', () => {
   })
 
   it('renders no back link when return_to is present but not an allowed origin', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     await renderLoggedIn('?return_to=' + encodeURIComponent('https://evil.test/steal'))
     expect(externalNonChromeLinks().length).toBe(0)
     vi.unstubAllEnvs()
@@ -1090,7 +1090,7 @@ describe('AccountPage — NotificationsCard browser push (rework + bugfix)', () 
   })
 
   it('shows a link to Glocke\'s browser-push settings when notifyBrowserPush is already enabled on load', async () => {
-    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.account.test')
+    stubRuntimeConfig('glockeUrl', 'https://glocke.account.test')
     mockFetchProfile.mockResolvedValue({ ...PROFILE, notifyBrowserPush: true })
     await renderLoggedIn()
     await screen.findAllByRole('checkbox')
@@ -1101,7 +1101,7 @@ describe('AccountPage — NotificationsCard browser push (rework + bugfix)', () 
   })
 
   it('shows no Glocke-settings link while notifyBrowserPush is disabled', async () => {
-    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.account.test')
+    stubRuntimeConfig('glockeUrl', 'https://glocke.account.test')
     await renderLoggedIn() // PROFILE fixture default: notifyBrowserPush: false
     await screen.findAllByRole('checkbox')
 
@@ -1110,7 +1110,7 @@ describe('AccountPage — NotificationsCard browser push (rework + bugfix)', () 
   })
 
   it('turning the browser-push checkbox on triggers updateProfile and then shows the Glocke-settings link once it resolves', async () => {
-    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.account.test')
+    stubRuntimeConfig('glockeUrl', 'https://glocke.account.test')
     const { user } = await renderLoggedIn()
     mockUpdateProfile.mockResolvedValue({ ...PROFILE, notifyBrowserPush: true })
     await screen.findAllByRole('checkbox')

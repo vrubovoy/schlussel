@@ -7,9 +7,9 @@ import { render, waitFor } from '@testing-library/react'
 // navigation here instead, and this page does the real same-origin logout
 // call, then bounces back via return_to/DEFAULT_APP_URL.
 
-// ALLOWED_ORIGINS (read by readReturnTo, imported by LogoutPage) is captured
-// from import.meta.env at module-evaluation time, so any test that changes
-// VITE_ALLOWED_RETURN_ORIGINS must vi.resetModules() + re-import the page,
+// The runtime allowlist (read by readReturnTo, imported by LogoutPage) is captured
+// at module-evaluation time, so any test that changes
+// allowedReturnOrigins must vi.resetModules() + re-import the page,
 // same convention as LoginPage.test.tsx / headerFooter.test.tsx.
 async function setLocation(search: string) {
   vi.resetModules()
@@ -48,7 +48,7 @@ describe('LogoutPage', () => {
 
 describe('LogoutPage — valid return_to', () => {
   it('redirects to the return_to URL once the logout fetch resolves', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { LogoutPage } = await setLocation('?return_to=https://kuvert.test/after-logout')
     render(<LogoutPage />)
 
@@ -58,15 +58,15 @@ describe('LogoutPage — valid return_to', () => {
 })
 
 describe('LogoutPage — missing return_to', () => {
-  it('redirects to the hardcoded default app URL when VITE_DEFAULT_APP_URL is not set', async () => {
+  it('redirects to the hardcoded default app URL when defaultAppUrl is not set', async () => {
     const { LogoutPage } = await setLocation('')
     render(<LogoutPage />)
 
     await waitFor(() => expect(window.location.href).toBe('http://localhost:3000'))
   })
 
-  it('redirects to VITE_DEFAULT_APP_URL when it is stubbed', async () => {
-    vi.stubEnv('VITE_DEFAULT_APP_URL', 'https://schloss.example.com')
+  it('redirects to defaultAppUrl when it is stubbed', async () => {
+    stubRuntimeConfig('defaultAppUrl', 'https://schloss.example.com')
     const { LogoutPage } = await setLocation('')
     render(<LogoutPage />)
 
@@ -77,7 +77,7 @@ describe('LogoutPage — missing return_to', () => {
 
 describe('LogoutPage — invalid (non-allowlisted) return_to', () => {
   it('redirects to the default app URL instead of the untrusted return_to (open-redirect guard)', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { LogoutPage } = await setLocation('?return_to=https://evil.test/steal')
     render(<LogoutPage />)
 
@@ -90,7 +90,7 @@ describe('LogoutPage — invalid (non-allowlisted) return_to', () => {
 describe('LogoutPage — /auth/logout fetch rejects (network failure)', () => {
   it('still redirects to a valid return_to even though the logout call failed', async () => {
     mockFetch.mockRejectedValue(new TypeError('Failed to fetch'))
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { LogoutPage } = await setLocation('?return_to=https://kuvert.test/after-logout')
     render(<LogoutPage />)
 
@@ -108,7 +108,7 @@ describe('LogoutPage — /auth/logout fetch rejects (network failure)', () => {
 
   it('still redirects to the default app URL when return_to is invalid and the logout call failed', async () => {
     mockFetch.mockRejectedValue(new TypeError('Failed to fetch'))
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { LogoutPage } = await setLocation('?return_to=https://evil.test/steal')
     render(<LogoutPage />)
 
@@ -119,7 +119,7 @@ describe('LogoutPage — /auth/logout fetch rejects (network failure)', () => {
 
 describe('LogoutPage — does not throw', () => {
   it('renders without throwing and eventually redirects when return_to is valid', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { LogoutPage } = await setLocation('?return_to=https://kuvert.test/after-logout')
     expect(() => render(<LogoutPage />)).not.toThrow()
     await waitFor(() => expect(window.location.href).not.toBe(''))

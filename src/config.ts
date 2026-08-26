@@ -1,5 +1,8 @@
+import { readFileSync, statSync } from 'node:fs'
+
 const KEY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 const MAX_TIMER_VALUE = 2_147_483_647
+const MAX_SECRET_FILE_BYTES = 64 * 1024
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name]
@@ -7,8 +10,52 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
   return value
 }
 
-function secret(env: NodeJS.ProcessEnv, name: string): string {
-  const value = required(env, name)
+export interface SecretFileAccess {
+  stat(path: string): { isFile(): boolean; size: number }
+  read(path: string): Buffer
+}
+
+const defaultSecretFileAccess: SecretFileAccess = {
+  stat: statSync,
+  read: readFileSync,
+}
+
+export function resolveSecret(
+  env: NodeJS.ProcessEnv,
+  name: 'SCHLUSSEL_TO_GLOCKE_HMAC_SECRET' | 'GLOCKE_TO_SCHLUSSEL_HMAC_SECRET',
+  files: SecretFileAccess = defaultSecretFileAccess,
+): string {
+  const direct = env[name] || undefined
+  const fileName = `${name}_FILE`
+  const path = env[fileName] || undefined
+  if (direct && path) throw new Error(`${name} and ${fileName} are mutually exclusive`)
+
+  let value = direct
+  if (path) {
+    if (path.trim() !== path) throw new Error(`${fileName} must not have surrounding whitespace`)
+    let bytes: Buffer
+    try {
+      const metadata = files.stat(path)
+      if (!metadata.isFile()) throw new Error('not a regular file')
+      if (metadata.size > MAX_SECRET_FILE_BYTES) throw new Error('file is too large')
+      bytes = files.read(path)
+    } catch {
+      throw new Error(`${fileName} must reference a readable regular file no larger than 64 KiB`)
+    }
+    if (bytes.length > MAX_SECRET_FILE_BYTES) {
+      throw new Error(`${fileName} must reference a readable regular file no larger than 64 KiB`)
+    }
+    try {
+      value = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    } catch {
+      throw new Error(`${fileName} must contain valid UTF-8`)
+    }
+    if (value.endsWith('\r\n')) value = value.slice(0, -2)
+    else if (value.endsWith('\n')) value = value.slice(0, -1)
+    if (!value || value.includes('\0')) throw new Error(`${fileName} must contain a non-empty secret without NUL bytes`)
+  }
+
+  if (!value) throw new Error(`${name} or ${fileName} is required`)
   if (Buffer.byteLength(value) < 32) throw new Error(`${name} must be at least 32 bytes`)
   return value
 }
@@ -77,13 +124,16 @@ export interface NotificationConfig {
   maxDelayMs: number
 }
 
-export function loadNotificationConfig(env: NodeJS.ProcessEnv = process.env): NotificationConfig {
+export function loadNotificationConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  files: SecretFileAccess = defaultSecretFileAccess,
+): NotificationConfig {
   const leaseMs = positiveInteger(env, 'GLOCKE_OUTBOX_LEASE_MS', 30_000)
   const fetchTimeoutMs = positiveInteger(env, 'GLOCKE_FETCH_TIMEOUT_MS', 10_000)
   const baseDelayMs = positiveInteger(env, 'GLOCKE_RETRY_BASE_DELAY_MS', 1_000)
   const maxDelayMs = positiveInteger(env, 'GLOCKE_RETRY_MAX_DELAY_MS', 15 * 60_000)
-  const outboundSecret = secret(env, 'SCHLUSSEL_TO_GLOCKE_HMAC_SECRET')
-  const inboundSecret = secret(env, 'GLOCKE_TO_SCHLUSSEL_HMAC_SECRET')
+  const outboundSecret = resolveSecret(env, 'SCHLUSSEL_TO_GLOCKE_HMAC_SECRET', files)
+  const inboundSecret = resolveSecret(env, 'GLOCKE_TO_SCHLUSSEL_HMAC_SECRET', files)
   if (fetchTimeoutMs >= leaseMs) throw new Error('GLOCKE_FETCH_TIMEOUT_MS must be shorter than GLOCKE_OUTBOX_LEASE_MS')
   if (maxDelayMs < baseDelayMs) throw new Error('GLOCKE_RETRY_MAX_DELAY_MS must be at least GLOCKE_RETRY_BASE_DELAY_MS')
   if (outboundSecret === inboundSecret) throw new Error('Directional HMAC secrets must be distinct')

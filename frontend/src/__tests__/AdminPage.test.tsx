@@ -192,7 +192,7 @@ describe('AdminPage — session bootstrap', () => {
 
 describe('AdminPage — access denied for non-admin users', () => {
   it('keeps the authenticated Glocke bell on the access-denied surface', async () => {
-    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.admin.test')
+    stubRuntimeConfig('glockeUrl', 'https://glocke.admin.test')
     mockRefreshSession.mockResolvedValue({ accessToken: 'denied-token' })
     mockFetchMe.mockResolvedValue(PLAIN_USER)
     const { AdminPage } = await setLocation('')
@@ -223,7 +223,7 @@ describe('AdminPage — access denied for non-admin users', () => {
 
 describe('AdminPage — admin content on load', () => {
   it('passes the authenticated admin page token to the shared Header Glocke request', async () => {
-    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.admin.test')
+    stubRuntimeConfig('glockeUrl', 'https://glocke.admin.test')
     await renderAsAdmin()
 
     await waitFor(() => expect(mockGlockeFetch).toHaveBeenCalledWith(
@@ -234,7 +234,7 @@ describe('AdminPage — admin content on load', () => {
   })
 
   it('publishes a Header refresh to the page so admin API actions use the replacement token', async () => {
-    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.admin.test')
+    stubRuntimeConfig('glockeUrl', 'https://glocke.admin.test')
     mockRefreshSession
       .mockResolvedValueOnce({ accessToken: 'expired-token' })
       .mockResolvedValue({ accessToken: 'fresh-token' })

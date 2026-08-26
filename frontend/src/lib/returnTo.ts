@@ -1,11 +1,10 @@
 // Open-redirect guard: `return_to` drives a client-side redirect carrying a
 // one-time authorization code, so its origin must be checked against a
-// build-time allowlist before it's ever used. There is no server in this
+// runtime allowlist before it's ever used. There is no server in this
 // loop to do the check instead.
-const ALLOWED_ORIGINS: string[] = ((import.meta.env.VITE_ALLOWED_RETURN_ORIGINS as string | undefined) ?? '')
-  .split(',')
-  .map((o: string) => o.trim())
-  .filter(Boolean)
+import { runtimeConfig } from './runtimeConfig'
+
+const ALLOWED_ORIGINS = runtimeConfig.allowedReturnOrigins
 
 export type ReturnToResult =
   | { present: false }
@@ -63,7 +62,7 @@ export function redirectWithCode(returnTo: string, code: string) {
 // seeing the login/register form - this is what makes these pages
 // unreachable by typing their URL directly; they only render when an
 // external redirect supplied a valid return_to.
-export const DEFAULT_APP_URL: string = (import.meta.env.VITE_DEFAULT_APP_URL as string | undefined) ?? 'http://localhost:3000'
+export const DEFAULT_APP_URL = runtimeConfig.defaultAppUrl
 
 export function redirectToDefaultApp() {
   window.location.href = DEFAULT_APP_URL

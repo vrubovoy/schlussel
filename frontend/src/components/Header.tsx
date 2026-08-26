@@ -10,6 +10,7 @@ import {
 } from '@zudar107/schloss-ui'
 import { refreshSession } from '../lib/api'
 import { DEFAULT_APP_URL } from '../lib/returnTo'
+import { runtimeConfig } from '../lib/runtimeConfig'
 
 interface HeaderProps {
   // Login/Register/Error/Help are public, so they render the plain header
@@ -20,7 +21,7 @@ interface HeaderProps {
   onLogout?: () => void
 }
 
-const GLOCKE_ORIGIN = import.meta.env.VITE_GLOCKE_URL || 'http://localhost:5177'
+const GLOCKE_ORIGIN = runtimeConfig.glockeUrl
 const NORMALIZED_GLOCKE_ORIGIN = normalizeNotificationOrigin(GLOCKE_ORIGIN)
 
 function unsupportedApiMethod(): Promise<never> {

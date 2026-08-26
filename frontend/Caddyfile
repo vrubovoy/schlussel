@@ -2,6 +2,12 @@
 	root * /srv
 	encode gzip zstd
 
+	handle /config.js {
+		root * /config
+		header Cache-Control "no-store"
+		file_server
+	}
+
 	# X-Schlussel-Frontend marks this as a genuinely same-origin call - the
 	# only origin allowed to receive the session cookie (see the
 	# isTrustedOrigin gate in schlussel's own src/routes/auth.ts). Consumer
