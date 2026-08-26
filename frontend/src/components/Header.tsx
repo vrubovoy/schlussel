@@ -92,7 +92,7 @@ function useHeaderApiClient(
 // go.
 export function Header({ user, accessToken, onAccessTokenChange, onLogout }: HeaderProps = {}) {
   const apiClient = useHeaderApiClient(accessToken, onAccessTokenChange)
-  const userId = accessToken && user ? user.id ?? user.name : null
+  const userId = accessToken && user && runtimeConfig.services.glocke ? user.id ?? user.name : null
   const notificationState = useUnreadNotifications({
     glockeOrigin: GLOCKE_ORIGIN,
     userId,
@@ -120,7 +120,7 @@ export function Header({ user, accessToken, onAccessTokenChange, onLogout }: Hea
       user={user ? { ...user, avatarUrl } : user}
       onLogout={onLogout}
       rightSlot={<ThemeToggle />}
-      notifications={user && accessToken && NORMALIZED_GLOCKE_ORIGIN
+      notifications={user && accessToken && NORMALIZED_GLOCKE_ORIGIN && runtimeConfig.services.glocke
         ? { href: `${NORMALIZED_GLOCKE_ORIGIN}/notifications`, state: notificationState, glockeOrigin: NORMALIZED_GLOCKE_ORIGIN, apiClient }
         : undefined}
     />

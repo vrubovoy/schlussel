@@ -1,8 +1,16 @@
+// Only glocke is topology-gated here - it has no card of its own anywhere
+// in Schlüssel, it only controls whether the header's notification bell
+// renders, since a disabled Glocke deployment has nothing for it to fetch.
+export interface OptionalServices {
+  glocke: boolean
+}
+
 export interface HofRuntimeConfig {
   schemaVersion: 1
   allowedReturnOrigins: string[]
   defaultAppUrl: string
   glockeUrl: string
+  services: OptionalServices
 }
 
 export const DEFAULT_RUNTIME_CONFIG: HofRuntimeConfig = {
@@ -17,6 +25,18 @@ export const DEFAULT_RUNTIME_CONFIG: HofRuntimeConfig = {
   ],
   defaultAppUrl: 'http://localhost:3000',
   glockeUrl: 'http://localhost:5177',
+  services: { glocke: true },
+}
+
+// Missing or non-boolean per-service flags default to enabled (true) - a
+// deployment that hasn't started emitting `services` yet (or a hand-edited
+// config.js) should keep showing the bell, matching behavior before this
+// field existed, rather than hiding it for nobody who asked to disable it.
+function parseServices(value: unknown): OptionalServices {
+  const source = typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+  return { glocke: typeof source.glocke === 'boolean' ? source.glocke : true }
 }
 
 function parseHttpUrl(value: unknown, name: string): string {
@@ -70,6 +90,7 @@ export function parseRuntimeConfig(value: unknown = window.__HOF_CONFIG__): HofR
     allowedReturnOrigins: origins.map((origin, index) => parseOrigin(origin, `allowedReturnOrigins[${index}]`)),
     defaultAppUrl: parseHttpUrl(supplied.defaultAppUrl ?? DEFAULT_RUNTIME_CONFIG.defaultAppUrl, 'defaultAppUrl'),
     glockeUrl: parseOrigin(supplied.glockeUrl ?? DEFAULT_RUNTIME_CONFIG.glockeUrl, 'glockeUrl'),
+    services: parseServices(supplied.services),
   }
 }
 

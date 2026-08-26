@@ -190,4 +190,19 @@ describe('authenticated Header Glocke integration', () => {
     expect(mockFetch).not.toHaveBeenCalled()
     expect(container.querySelector('a[href*="glocke"]')).not.toBeInTheDocument()
   })
+
+  it('renders no bell and never fetches Glocke when this deployment has it disabled', async () => {
+    stubRuntimeConfig('glockeEnabled', 'false')
+    const mockFetch = vi.fn()
+    vi.stubGlobal('fetch', mockFetch)
+    const Header = await loadHeader()
+
+    const { container } = render(
+      <Header user={{ name: 'Jane Doe' }} onLogout={() => {}} accessToken="page-token" />,
+    )
+
+    await Promise.resolve()
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(container.querySelector('a[href*="glocke"]')).not.toBeInTheDocument()
+  })
 })
