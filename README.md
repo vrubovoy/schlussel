@@ -281,6 +281,12 @@ auto-upgrades everything to HTTPS with its own locally-trusted CA). Other Schlos
 services on the same `schloss-net` network reach the API directly at
 `http://schlussel:4000` (internal Docker network traffic, not through the gateway).
 
+## Operations
+
+Run `pnpm build && pnpm db:migrate` as a dedicated deployment step. Normal startup never changes the database: unset, empty, or `false` `MIGRATE_ON_STARTUP` asserts that all migrations are applied; only explicit `true` migrates on startup. `pnpm db:migrate:dev` retains the Drizzle Kit workflow for development only.
+
+`GET /health` is liveness and reports `version`/`build`; `GET /ready` verifies the current database schema. Set bounded `SERVICE_VERSION` and `BUILD_SHA` metadata (Compose: `SCHLUSSEL_SERVICE_VERSION` and `SCHLUSSEL_BUILD_SHA`), or the package version and `unknown` are used.
+
 ## License
 
 AGPL-3.0 — see [LICENSE](LICENSE).

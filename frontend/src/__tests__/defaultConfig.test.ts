@@ -21,7 +21,10 @@ describe('frontend runtime configuration deployment', () => {
   it('passes deployment values at runtime rather than as Vite build arguments', () => {
     expect(compose).toContain('ALLOWED_RETURN_ORIGINS=${ALLOWED_RETURN_ORIGINS:-')
     expect(compose).toContain('DEFAULT_APP_URL=${DEFAULT_APP_URL:-https://localhost}')
-    expect(compose).toContain('GLOCKE_URL=${GLOCKE_URL:-https://glocke.localhost}')
+    // Blank by default, not a hardcoded fallback - Glocke is optional, and
+    // an operator who disables it should never have Schlüssel silently
+    // point back at a default Glocke origin.
+    expect(compose).toContain('GLOCKE_URL=${GLOCKE_URL:-}')
     expect(dockerfile).not.toContain('ARG VITE_')
     expect(dockerfile).toContain('apk add --no-cache jq')
   })

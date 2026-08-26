@@ -10,7 +10,8 @@ import { themeRouter } from './routes/theme.js'
 import { createInternalRouter } from './routes/internal.js'
 import { openApiDocument } from './openapi.js'
 import { db, sqlite } from './db/index.js'
-import { parseMigrateOnStartup, prepareDatabase } from './db/migrate.js'
+import { assertSchemaCurrent, parseMigrateOnStartup, prepareDatabase } from './db/migrate.js'
+import { buildInfo } from './build-info.js'
 import { startOutboxDispatcher } from './services/outboxDispatcher.js'
 import { createExportServices, startExportWorker } from './services/exportWorker.js'
 import { loadDeletionConfig, loadExportConfig, loadNotificationConfig } from './config.js'
@@ -36,16 +37,26 @@ app.use('*', bodyLimit({
 }))
 
 app.get('/.well-known/jwks.json', (c) => c.json(getJwks()))
-app.get('/health', (c) => c.json({ status: 'ok', service: 'Schlüssel' }))
+app.get('/health', (c) => c.json({ status: 'ok', service: 'Schlüssel', ...buildInfo }))
+app.get('/ready', (c) => {
+  try {
+    assertSchemaCurrent(sqlite)
+    return c.json({ status: 'ready', service: 'Schlüssel' })
+  } catch {
+    return c.json({ status: 'unavailable', service: 'Schlüssel' }, 503)
+  }
+})
 
 app.route('/auth', authRouter)
 app.route('/auth', adminRouter)
 app.route('/theme', themeRouter)
-app.route('/internal', createInternalRouter({
-  keyId: notificationConfig.inboundKeyId,
-  secret: notificationConfig.inboundSecret,
-  maxSkewSeconds: notificationConfig.signatureMaxSkewSeconds,
-}))
+if (notificationConfig) {
+  app.route('/internal', createInternalRouter({
+    keyId: notificationConfig.inboundKeyId,
+    secret: notificationConfig.inboundSecret,
+    maxSkewSeconds: notificationConfig.signatureMaxSkewSeconds,
+  }))
+}
 
 // Lives here rather than inside admin.ts/adminRouter, since openapi.ts
 // imports admin.ts's own schemas to describe them - mounting it in
@@ -62,7 +73,7 @@ const server = serve({ fetch: app.fetch, port: PORT }, () => {
   console.log(`[Schlüssel] Running on http://localhost:${PORT}`)
 })
 
-const dispatcher = startOutboxDispatcher({
+const dispatcher = notificationConfig ? startOutboxDispatcher({
   glockeBaseUrl: notificationConfig.glockeBaseUrl,
   keyId: notificationConfig.outboundKeyId,
   secret: notificationConfig.outboundSecret,
@@ -74,7 +85,7 @@ const dispatcher = startOutboxDispatcher({
   baseDelayMs: notificationConfig.baseDelayMs,
   maxDelayMs: notificationConfig.maxDelayMs,
   onError: () => console.error('[Schlüssel] Notification outbox dispatch failed'),
-})
+}) : { stop: async () => {} }
 
 const exportWorker = startExportWorker({
   exportDir: exportConfig.exportDir,
