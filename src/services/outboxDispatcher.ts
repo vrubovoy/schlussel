@@ -111,7 +111,7 @@ export async function dispatchOutboxBatch(options: DispatchOutboxOptions = {}): 
   const random = options.random ?? Math.random
   const createId = options.createId ?? randomUUID
   const keyId = options.keyId ?? process.env['SCHLUSSEL_TO_GLOCKE_HMAC_KEY_ID']
-  const secret = options.secret ?? process.env['SCHLUSSEL_TO_GLOCKE_HMAC_SECRET']
+  const secret = options.secret
   if (!keyId || !secret) throw new Error('Schlussel-to-Glocke HMAC credentials are not configured')
 
   if (Buffer.byteLength(secret) < 32) throw new Error('Schlussel-to-Glocke HMAC secret must be at least 32 bytes')

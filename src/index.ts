@@ -2,8 +2,6 @@ import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { logger } from 'hono/logger'
 import { bodyLimit } from 'hono/body-limit'
-import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
 import { initKeys, getJwks } from './utils/keys.js'
 import { corsMiddleware } from './middleware/cors.js'
 import { authRouter } from './routes/auth.js'
@@ -11,24 +9,19 @@ import { adminRouter, authenticateAdmin } from './routes/admin.js'
 import { themeRouter } from './routes/theme.js'
 import { createInternalRouter } from './routes/internal.js'
 import { openApiDocument } from './openapi.js'
-import { db } from './db/index.js'
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
+import { db, sqlite } from './db/index.js'
+import { parseMigrateOnStartup, prepareDatabase } from './db/migrate.js'
 import { startOutboxDispatcher } from './services/outboxDispatcher.js'
 import { createExportServices, startExportWorker } from './services/exportWorker.js'
 import { loadDeletionConfig, loadExportConfig, loadNotificationConfig } from './config.js'
 import { startDeletionWorker } from './services/deletionSaga.js'
 
-// Resolved relative to this file so it works both in dev (src/index.ts,
-// migrations at src/db/migrations) and in the compiled build
-// (dist/index.js, migrations at dist/db/migrations) without a hardcoded
-// path that only matches one of the two.
-const __dirname = dirname(fileURLToPath(import.meta.url))
 const notificationConfig = loadNotificationConfig()
 const exportConfig = loadExportConfig()
 const deletionConfig = loadDeletionConfig()
 
+prepareDatabase(db, sqlite, parseMigrateOnStartup(process.env['MIGRATE_ON_STARTUP']))
 await initKeys()
-migrate(db, { migrationsFolder: join(__dirname, 'db/migrations') })
 
 const app = new Hono()
 

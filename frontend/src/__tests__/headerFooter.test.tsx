@@ -73,9 +73,9 @@ function expectNoGlockeRequest() {
 }
 
 describe('Header + Footer — LoginPage (valid return_to/code_challenge)', () => {
-  it('renders a Header link to VITE_DEFAULT_APP_URL when it is stubbed', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
-    vi.stubEnv('VITE_DEFAULT_APP_URL', 'https://schloss.example.com')
+  it('renders a Header link to defaultAppUrl when it is stubbed', async () => {
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
+    stubRuntimeConfig('defaultAppUrl', 'https://schloss.example.com')
     const { LoginPage } = await setLocation('/login', `?return_to=https://kuvert.test/callback${PKCE_QS}`)
     render(<LoginPage />)
 
@@ -85,8 +85,8 @@ describe('Header + Footer — LoginPage (valid return_to/code_challenge)', () =>
     vi.unstubAllEnvs()
   })
 
-  it('renders a Header link to the default app URL fallback when VITE_DEFAULT_APP_URL is not set', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+  it('renders a Header link to the default app URL fallback when defaultAppUrl is not set', async () => {
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { LoginPage } = await setLocation('/login', `?return_to=https://kuvert.test/callback${PKCE_QS}`)
     render(<LoginPage />)
 
@@ -97,7 +97,7 @@ describe('Header + Footer — LoginPage (valid return_to/code_challenge)', () =>
   })
 
   it('renders the Footer with its text and GitHub link', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { LoginPage } = await setLocation('/login', `?return_to=https://kuvert.test/callback${PKCE_QS}`)
     render(<LoginPage />)
 
@@ -107,7 +107,7 @@ describe('Header + Footer — LoginPage (valid return_to/code_challenge)', () =>
   })
 
   it('shows exactly one "Войти" heading (no duplicate brand heading in the card)', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { LoginPage } = await setLocation('/login', `?return_to=https://kuvert.test/callback${PKCE_QS}`)
     render(<LoginPage />)
 
@@ -118,9 +118,9 @@ describe('Header + Footer — LoginPage (valid return_to/code_challenge)', () =>
 })
 
 describe('Header + Footer — RegisterPage (valid return_to/code_challenge)', () => {
-  it('renders the Header link to VITE_DEFAULT_APP_URL when it is stubbed', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
-    vi.stubEnv('VITE_DEFAULT_APP_URL', 'https://schloss.example.com')
+  it('renders the Header link to defaultAppUrl when it is stubbed', async () => {
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
+    stubRuntimeConfig('defaultAppUrl', 'https://schloss.example.com')
     const { RegisterPage } = await setLocation(
       '/register',
       `?return_to=https://kuvert.test/callback${PKCE_QS}`,
@@ -133,7 +133,7 @@ describe('Header + Footer — RegisterPage (valid return_to/code_challenge)', ()
   })
 
   it('renders the Footer with its text and GitHub link', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(
       '/register',
       `?return_to=https://kuvert.test/callback${PKCE_QS}`,
@@ -147,8 +147,8 @@ describe('Header + Footer — RegisterPage (valid return_to/code_challenge)', ()
 
 describe('Header + Footer — ErrorPage (invalid return_to)', () => {
   it('renders Header and Footer around the "Небезопасный адрес возврата" message from LoginPage', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
-    vi.stubEnv('VITE_DEFAULT_APP_URL', 'https://schloss.example.com')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
+    stubRuntimeConfig('defaultAppUrl', 'https://schloss.example.com')
     const { LoginPage } = await setLocation('/login', `?return_to=https://evil.test/steal${PKCE_QS}`)
     render(<LoginPage />)
 
@@ -160,8 +160,8 @@ describe('Header + Footer — ErrorPage (invalid return_to)', () => {
   })
 
   it('renders Header and Footer around the "Небезопасный адрес возврата" message from RegisterPage', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
-    vi.stubEnv('VITE_DEFAULT_APP_URL', 'https://schloss.example.com')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
+    stubRuntimeConfig('defaultAppUrl', 'https://schloss.example.com')
     const { RegisterPage } = await setLocation(
       '/register',
       `?return_to=https://evil.test/steal${PKCE_QS}`,

@@ -41,20 +41,14 @@ RUN pnpm install --frozen-lockfile --filter frontend --filter @zudar107/schloss-
 COPY schloss-ui ./schloss-ui
 RUN pnpm --filter @zudar107/schloss-ui build
 
-# Vite bakes import.meta.env.VITE_* into the bundle at build time, so this
-# must be declared as an ARG to actually receive the value passed via
-# docker-compose's build.args.
-ARG VITE_ALLOWED_RETURN_ORIGINS=https://localhost,https://auth.localhost,https://kuvert.localhost,https://tafel.localhost,https://zettel.localhost,https://glocke.localhost
-ENV VITE_ALLOWED_RETURN_ORIGINS=$VITE_ALLOWED_RETURN_ORIGINS
-ARG VITE_DEFAULT_APP_URL=https://localhost
-ENV VITE_DEFAULT_APP_URL=$VITE_DEFAULT_APP_URL
-ARG VITE_GLOCKE_URL=https://glocke.localhost
-ENV VITE_GLOCKE_URL=$VITE_GLOCKE_URL
-
 COPY frontend ./frontend
 RUN cd frontend && pnpm run build
 
 FROM caddy:2-alpine AS runner
+RUN apk add --no-cache jq && mkdir -p /config
 COPY --from=builder /app/frontend/dist /srv
 COPY frontend/Caddyfile /etc/caddy/Caddyfile
+COPY frontend/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 EXPOSE 80
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

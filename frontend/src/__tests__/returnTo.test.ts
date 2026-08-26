@@ -7,11 +7,8 @@ import { readReturnTo, readCodeChallenge, redirectWithCode, withReturnTo, readIn
 // these tests — only that readCodeChallenge extracts it verbatim.
 const FIXTURE_CHALLENGE = 'A'.repeat(43)
 
-// import.meta.env.VITE_ALLOWED_RETURN_ORIGINS is set in vitest.config.ts's
-// define — but simplest here is to rely on Vite's default test env exposing
-// whatever is in the shell/CI env. Since none is set for tests, this suite
-// documents the "no allowlist configured" behavior (everything rejected)
-// separately from a stubbed-allowlist scenario using vi.stubEnv.
+// Tests that change the allowlist reset modules before importing the reader,
+// matching the runtime config's once-at-startup parsing behavior.
 
 describe('readReturnTo — no return_to param', () => {
   it('reports not present', () => {
@@ -29,7 +26,7 @@ describe('readReturnTo — malformed return_to', () => {
 
 describe('readReturnTo — allowlist enforcement', () => {
   beforeEach(() => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.example.com,https://schloss.example.com')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.example.com,https://schloss.example.com')
   })
 
   it('accepts an origin present in the allowlist', async () => {

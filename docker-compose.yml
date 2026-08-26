@@ -87,10 +87,10 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
-      args:
-        VITE_ALLOWED_RETURN_ORIGINS: ${ALLOWED_RETURN_ORIGINS:-https://localhost,https://auth.localhost,https://kuvert.localhost,https://tafel.localhost,https://zettel.localhost,https://glocke.localhost}
-        VITE_DEFAULT_APP_URL: ${DEFAULT_APP_URL:-https://localhost}
-        VITE_GLOCKE_URL: ${GLOCKE_URL:-https://glocke.localhost}
+    environment:
+      - ALLOWED_RETURN_ORIGINS=${ALLOWED_RETURN_ORIGINS:-https://localhost,https://auth.localhost,https://kuvert.localhost,https://tafel.localhost,https://zettel.localhost,https://glocke.localhost}
+      - DEFAULT_APP_URL=${DEFAULT_APP_URL:-https://localhost}
+      - GLOCKE_URL=${GLOCKE_URL:-https://glocke.localhost}
     restart: unless-stopped
     networks:
       - schloss-net

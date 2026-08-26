@@ -43,14 +43,14 @@ beforeEach(() => {
 })
 
 describe('RegisterPage — no return_to', () => {
-  it('redirects immediately to the hardcoded default app URL when VITE_DEFAULT_APP_URL is not set', async () => {
+  it('redirects immediately to the hardcoded default app URL when defaultAppUrl is not set', async () => {
     const { RegisterPage } = await setLocation('')
     render(<RegisterPage />)
     expect(window.location.href).toBe('http://localhost:3000')
   })
 
-  it('redirects immediately to VITE_DEFAULT_APP_URL when it is stubbed', async () => {
-    vi.stubEnv('VITE_DEFAULT_APP_URL', 'https://schloss.example.com')
+  it('redirects immediately to defaultAppUrl when it is stubbed', async () => {
+    stubRuntimeConfig('defaultAppUrl', 'https://schloss.example.com')
     const { RegisterPage } = await setLocation('')
     render(<RegisterPage />)
     expect(window.location.href).toBe('https://schloss.example.com')
@@ -74,7 +74,7 @@ describe('RegisterPage — no return_to', () => {
 
 describe('RegisterPage — missing or invalid code_challenge', () => {
   it('redirects to the default app URL (same as missing return_to) when return_to is valid but code_challenge is absent', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation('?return_to=https://kuvert.test/callback')
     render(<RegisterPage />)
     expect(window.location.href).toBe('http://localhost:3000')
@@ -84,7 +84,7 @@ describe('RegisterPage — missing or invalid code_challenge', () => {
   })
 
   it('redirects to the default app URL when code_challenge is present but code_challenge_method is not S256', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(
       `?return_to=https://kuvert.test/callback&code_challenge=${CODE_CHALLENGE}&code_challenge_method=plain`,
     )
@@ -95,9 +95,9 @@ describe('RegisterPage — missing or invalid code_challenge', () => {
     vi.unstubAllEnvs()
   })
 
-  it('honors VITE_DEFAULT_APP_URL when redirecting due to missing code_challenge', async () => {
-    vi.stubEnv('VITE_DEFAULT_APP_URL', 'https://schloss.example.com')
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+  it('honors defaultAppUrl when redirecting due to missing code_challenge', async () => {
+    stubRuntimeConfig('defaultAppUrl', 'https://schloss.example.com')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation('?return_to=https://kuvert.test/callback')
     render(<RegisterPage />)
     expect(window.location.href).toBe('https://schloss.example.com')
@@ -107,7 +107,7 @@ describe('RegisterPage — missing or invalid code_challenge', () => {
 
 describe('RegisterPage — valid return_to', () => {
   it('calls register with email, password, name and the code_challenge extracted from the URL', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     mockRegister.mockResolvedValue({ code: 'reg-code' })
     const user = userEvent.setup()
@@ -129,7 +129,7 @@ describe('RegisterPage — valid return_to', () => {
   })
 
   it('redirects with the code in the URL query string on successful registration (no existing query on return_to)', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     mockRegister.mockResolvedValue({ code: 'reg-code' })
     const user = userEvent.setup()
@@ -147,7 +147,7 @@ describe('RegisterPage — valid return_to', () => {
   })
 
   it('redirects with &code=<value> appended when the return_to URL already has a query string', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(
       `?return_to=${encodeURIComponent('https://kuvert.test/callback?next=%2Fbudget')}${PKCE_QS}`,
     )
@@ -168,7 +168,7 @@ describe('RegisterPage — valid return_to', () => {
   })
 
   it('shows an error when the email is already registered', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     const ApiError = (await import('../lib/api')).ApiError
     mockRegister.mockRejectedValue(new ApiError(409, 'Email already registered'))
@@ -188,7 +188,7 @@ describe('RegisterPage — valid return_to', () => {
 
 describe('RegisterPage — password confirmation', () => {
   it('blocks submission and shows an error when the passwords do not match', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     const user = userEvent.setup()
     render(<RegisterPage />)
@@ -206,7 +206,7 @@ describe('RegisterPage — password confirmation', () => {
   })
 
   it('proceeds with registration when the passwords match', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     mockRegister.mockResolvedValue({ code: 'reg-code' })
     const user = userEvent.setup()
@@ -231,7 +231,7 @@ describe('RegisterPage — password confirmation', () => {
 
 describe('RegisterPage — field-level validation', () => {
   it('rejects a name containing digits without ever calling register', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     const user = userEvent.setup()
     render(<RegisterPage />)
@@ -250,7 +250,7 @@ describe('RegisterPage — field-level validation', () => {
   })
 
   it('rejects a malformed email without ever calling register', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     const user = userEvent.setup()
     render(<RegisterPage />)
@@ -268,7 +268,7 @@ describe('RegisterPage — field-level validation', () => {
   })
 
   it('rejects a password shorter than 8 characters without ever calling register', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     const user = userEvent.setup()
     render(<RegisterPage />)
@@ -285,7 +285,7 @@ describe('RegisterPage — field-level validation', () => {
   })
 
   it('clears a field error as soon as that field is edited again', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     const user = userEvent.setup()
     render(<RegisterPage />)
@@ -303,7 +303,7 @@ describe('RegisterPage — field-level validation', () => {
   })
 
   it('marks the email field invalid (not the password fields) when the email is already registered', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     const ApiError = (await import('../lib/api')).ApiError
     mockRegister.mockRejectedValue(new ApiError(409, 'Email already registered'))
@@ -325,7 +325,7 @@ describe('RegisterPage — field-level validation', () => {
 
 describe('RegisterPage — password visibility toggle', () => {
   it('shows two toggle buttons, both initially labeled "Показать пароль"', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     render(<RegisterPage />)
 
@@ -335,7 +335,7 @@ describe('RegisterPage — password visibility toggle', () => {
   })
 
   it('toggles the main password field independently of the confirm field', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     const user = userEvent.setup()
     render(<RegisterPage />)
@@ -362,7 +362,7 @@ describe('RegisterPage — password visibility toggle', () => {
   })
 
   it('preserves typed values in both fields when toggling visibility', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     const user = userEvent.setup()
     render(<RegisterPage />)
@@ -385,7 +385,7 @@ describe('RegisterPage — password visibility toggle', () => {
 
 describe('RegisterPage — invalid return_to', () => {
   it('shows an error page instead of the registration form and never calls register', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://evil.test/steal${PKCE_QS}`)
     render(<RegisterPage />)
 
@@ -399,7 +399,7 @@ describe('RegisterPage — invalid return_to', () => {
 
 describe('RegisterPage — login link', () => {
   it('carries the return_to param over to the login link', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https%3A%2F%2Fkuvert.test%2Fcallback${PKCE_QS}`)
     render(<RegisterPage />)
     const link = screen.getByRole('link', { name: /^войти$/i })
@@ -476,7 +476,7 @@ describe('RegisterPage — invite-gated registration', () => {
   })
 
   it('also includes the invite code in register() call args for the existing return_to + code_challenge path', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(
       `?return_to=https://kuvert.test/callback${PKCE_QS}`,
       INVITE_HASH,
@@ -522,7 +522,7 @@ describe('RegisterPage — invite-gated registration', () => {
 
 describe('RegisterPage — focus moves to the first invalid field', () => {
   it('focuses register-name (first field in visual order) when the form is submitted entirely empty', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     const user = userEvent.setup()
     render(<RegisterPage />)
@@ -535,7 +535,7 @@ describe('RegisterPage — focus moves to the first invalid field', () => {
   })
 
   it('focuses register-email when register rejects with 409 (email already registered)', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     const ApiError = (await import('../lib/api')).ApiError
     mockRegister.mockRejectedValue(new ApiError(409, 'Email already registered'))
@@ -584,7 +584,7 @@ describe('RegisterPage — email field guards against the saved-credentials pick
   // later within that same synchronous event.
 
   it('is not readOnly once it receives focus', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     render(<RegisterPage />)
 
@@ -596,7 +596,7 @@ describe('RegisterPage — email field guards against the saved-credentials pick
   })
 
   it('still accepts typed input once focused - no functional regression in normal typing', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     render(<RegisterPage />)
 
@@ -608,7 +608,7 @@ describe('RegisterPage — email field guards against the saved-credentials pick
   })
 
   it('becomes readOnly again once blurred, ready to guard the next focus', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     render(<RegisterPage />)
 
@@ -621,7 +621,7 @@ describe('RegisterPage — email field guards against the saved-credentials pick
   })
 
   it('repeats the readOnly-on-blur / editable-on-focus pattern across multiple focus/blur cycles (not a one-shot guard)', async () => {
-    vi.stubEnv('VITE_ALLOWED_RETURN_ORIGINS', 'https://kuvert.test')
+    stubRuntimeConfig('allowedReturnOrigins', 'https://kuvert.test')
     const { RegisterPage } = await setLocation(`?return_to=https://kuvert.test/callback${PKCE_QS}`)
     render(<RegisterPage />)
 

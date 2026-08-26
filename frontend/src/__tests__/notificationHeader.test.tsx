@@ -54,7 +54,7 @@ function routedFetchMocks(): { fetch: ReturnType<typeof vi.fn>; unread: ReturnTy
 
 describe('authenticated Header Glocke integration', () => {
   beforeEach(() => {
-    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.example.test')
+    stubRuntimeConfig('glockeUrl', 'https://glocke.example.test')
     mockRefreshSession.mockReset()
   })
 
@@ -65,7 +65,7 @@ describe('authenticated Header Glocke integration', () => {
     vi.resetModules()
   })
 
-  it('uses VITE_GLOCKE_URL for the bell and unread-count path, sending the token only as a bearer header', async () => {
+  it('uses glockeUrl for the bell and unread-count path, sending the token only as a bearer header', async () => {
     const { fetch: mockFetch, unread } = routedFetchMocks()
     unread.mockResolvedValue(jsonResponse(200, { count: 7 }))
     vi.stubGlobal('fetch', mockFetch)
@@ -174,23 +174,9 @@ describe('authenticated Header Glocke integration', () => {
     expect(bearerHeader(unread.mock.calls[1] as unknown[])).toBe('Bearer newer-page-token')
   })
 
-  it('omits the bell for an invalid Glocke origin without throwing, fetching, or rendering the raw link', async () => {
-    vi.stubEnv('VITE_GLOCKE_URL', 'http://glocke.example.test/path')
-    const { fetch: mockFetch, unread } = routedFetchMocks()
-    vi.stubGlobal('fetch', mockFetch)
-    const Header = await loadHeader()
-
-    const { container } = render(
-      <Header user={{ name: 'Jane Doe' }} accessToken="page-token" />,
-    )
-
-    await Promise.resolve()
-    // An invalid Glocke origin only suppresses the unread-count fetch and
-    // the bell itself - the avatar fetch (useAvatarUrl) targets
-    // Schlüssel's own origin independently and is unaffected.
-    expect(unread).not.toHaveBeenCalled()
-    expect(container.querySelector('a[aria-label^="Уведомления:"]')).not.toBeInTheDocument()
-    expect(container.querySelector('a[href="http://glocke.example.test/path/notifications"]')).not.toBeInTheDocument()
+  it('throws while loading an explicitly invalid Glocke origin', async () => {
+    stubRuntimeConfig('glockeUrl', 'http://glocke.example.test/path')
+    await expect(loadHeader()).rejects.toThrow(/glockeUrl must contain only an origin/)
   })
 
   it('renders no bell and never fetches Glocke when the Header has no authenticated token', async () => {

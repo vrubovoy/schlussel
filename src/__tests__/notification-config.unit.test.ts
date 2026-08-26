@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { loadNotificationConfig } from '../config.js'
 
+function files(contents: Buffer | string, options: { regular?: boolean; size?: number; failRead?: boolean } = {}) {
+  const bytes = Buffer.isBuffer(contents) ? contents : Buffer.from(contents)
+  return {
+    stat: () => ({ isFile: () => options.regular ?? true, size: options.size ?? bytes.length }),
+    read: () => {
+      if (options.failRead) throw new Error('injected read failure')
+      return bytes
+    },
+  }
+}
+
 function validEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return {
     GLOCKE_BASE_URL: 'http://glocke-backend:3004',
@@ -41,6 +52,47 @@ describe('notification startup configuration', () => {
       SCHLUSSEL_TO_GLOCKE_HMAC_SECRET: sharedSecret,
       GLOCKE_TO_SCHLUSSEL_HMAC_SECRET: sharedSecret,
     }))).toThrow('Directional HMAC secrets must be distinct')
+  })
+
+  it('loads a secret file, removes exactly one terminal newline, and preserves other bytes', () => {
+    const env = validEnv({
+      SCHLUSSEL_TO_GLOCKE_HMAC_SECRET: '',
+      SCHLUSSEL_TO_GLOCKE_HMAC_SECRET_FILE: '/run/secrets/outbound',
+    })
+    const secret = `${' s'.repeat(16)}\n\n`
+
+    const config = loadNotificationConfig(env, files(secret))
+
+    expect(config.outboundSecret).toBe(secret.slice(0, -1))
+    expect(env.SCHLUSSEL_TO_GLOCKE_HMAC_SECRET).toBe('')
+  })
+
+  it('accepts CRLF and removes it as one terminal line ending', () => {
+    const env = validEnv({
+      GLOCKE_TO_SCHLUSSEL_HMAC_SECRET: undefined,
+      GLOCKE_TO_SCHLUSSEL_HMAC_SECRET_FILE: '/run/secrets/inbound',
+    })
+    expect(loadNotificationConfig(env, files(`${'g'.repeat(32)}\r\n`)).inboundSecret).toBe('g'.repeat(32))
+  })
+
+  it.each([
+    ['both direct and file values', validEnv({ SCHLUSSEL_TO_GLOCKE_HMAC_SECRET_FILE: '/secret' }), files('x'.repeat(32))],
+    ['file path whitespace', validEnv({ SCHLUSSEL_TO_GLOCKE_HMAC_SECRET: '', SCHLUSSEL_TO_GLOCKE_HMAC_SECRET_FILE: ' /secret' }), files('x'.repeat(32))],
+    ['non-regular file', validEnv({ SCHLUSSEL_TO_GLOCKE_HMAC_SECRET: '', SCHLUSSEL_TO_GLOCKE_HMAC_SECRET_FILE: '/secret' }), files('x'.repeat(32), { regular: false })],
+    ['file over 64 KiB', validEnv({ SCHLUSSEL_TO_GLOCKE_HMAC_SECRET: '', SCHLUSSEL_TO_GLOCKE_HMAC_SECRET_FILE: '/secret' }), files('x'.repeat(32), { size: 65_537 })],
+    ['read failure', validEnv({ SCHLUSSEL_TO_GLOCKE_HMAC_SECRET: '', SCHLUSSEL_TO_GLOCKE_HMAC_SECRET_FILE: '/secret' }), files('x'.repeat(32), { failRead: true })],
+    ['invalid UTF-8', validEnv({ SCHLUSSEL_TO_GLOCKE_HMAC_SECRET: '', SCHLUSSEL_TO_GLOCKE_HMAC_SECRET_FILE: '/secret' }), files(Buffer.from([0xc3, 0x28]))],
+    ['empty after newline removal', validEnv({ SCHLUSSEL_TO_GLOCKE_HMAC_SECRET: '', SCHLUSSEL_TO_GLOCKE_HMAC_SECRET_FILE: '/secret' }), files('\n')],
+    ['NUL byte', validEnv({ SCHLUSSEL_TO_GLOCKE_HMAC_SECRET: '', SCHLUSSEL_TO_GLOCKE_HMAC_SECRET_FILE: '/secret' }), files(`${'x'.repeat(32)}\0`)],
+  ])('rejects %s without exposing file contents', (_case, env, access) => {
+    let error: unknown
+    try {
+      loadNotificationConfig(env, access)
+    } catch (caught) {
+      error = caught
+    }
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).not.toContain('x'.repeat(32))
   })
 
   it.each([

@@ -236,23 +236,28 @@ document. Startup rejects missing, short, or reused directional secrets, unsafe 
 or Glocke URLs, and invalid timing relationships rather than running with a
 partially secure dispatcher.
 
-`frontend/` reads three build-time variables (see `frontend/.env.example` for local
-development and `frontend/Dockerfile` for Docker): `VITE_ALLOWED_RETURN_ORIGINS`,
-a comma-separated allowlist of origins the hosted login page (and `/account`'s own "back
+`frontend/` synchronously reads `window.__HOF_CONFIG__` from `/config.js` before its
+module bundle. `public/config.js` contains safe localhost defaults for Vite development;
+the Docker entrypoint generates the same schema at container startup from
+`ALLOWED_RETURN_ORIGINS`, `DEFAULT_APP_URL`, and `GLOCKE_URL`. This keeps deployment
+configuration out of the image. `ALLOWED_RETURN_ORIGINS` is a comma-separated allowlist
+of origins the hosted login page (and `/account`'s own "back
 to app" link) is allowed to redirect back to (a `return_to` pointing anywhere outside
 this list is rejected instead of followed - the open-redirect guard), and
-`VITE_DEFAULT_APP_URL`, where a visitor who opened `/login` or `/register` directly (no
+`DEFAULT_APP_URL` is where a visitor who opened `/login` or `/register` directly (no
 `return_to` at all) gets sent instead of ever seeing the form - these pages are only
 reachable via an external redirect. `/account` is reachable directly (it checks for an
 existing session itself, bouncing through `/login` if there isn't one). The third,
-`VITE_GLOCKE_URL`, is Glocke's public origin. Authenticated account, admin, docs,
+`GLOCKE_URL`, is Glocke's public origin. Authenticated account, admin, docs,
 and access-denied headers use it for the notification-center link and shared unread
 polling; public and pre-auth headers do not contact Glocke. Compose receives it from
 `GLOCKE_URL` and defaults to `https://glocke.localhost`. A successful bell refresh
 updates the page-owned token used by subsequent account, admin, and docs requests;
 all same-origin session refresh callers share one in-flight request so the rotating
-session cookie cannot be raced. Invalid or insecure Glocke origins are treated as
-unavailable and omit the bell instead of rendering the untrusted configured link.
+session cookie cannot be raced. The runtime parser requires schema version 1, validates
+all explicit URLs as credential-free HTTP(S), and requires every return origin and
+Glocke URL to be origin-only. Invalid explicit security configuration stops frontend
+startup; missing fields use the localhost defaults documented in `public/config.js`.
 
 ## Running with Docker
 

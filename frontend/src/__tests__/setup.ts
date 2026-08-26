@@ -1,4 +1,39 @@
 import '@testing-library/jest-dom'
+import { beforeEach } from 'vitest'
+
+declare global {
+  function stubRuntimeConfig(
+    name: 'allowedReturnOrigins' | 'defaultAppUrl' | 'glockeUrl',
+    value: string,
+  ): void
+}
+
+const defaultRuntimeConfig = {
+  schemaVersion: 1 as const,
+  allowedReturnOrigins: [
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:5175',
+    'http://localhost:5176',
+    'http://localhost:5177',
+  ],
+  defaultAppUrl: 'http://localhost:3000',
+  glockeUrl: 'http://localhost:5177',
+}
+
+window.__HOF_CONFIG__ = { ...defaultRuntimeConfig, allowedReturnOrigins: [...defaultRuntimeConfig.allowedReturnOrigins] }
+
+globalThis.stubRuntimeConfig = (name, value) => {
+  const config = window.__HOF_CONFIG__ as typeof defaultRuntimeConfig
+  if (name === 'allowedReturnOrigins') config.allowedReturnOrigins = value.split(',')
+  if (name === 'defaultAppUrl') config.defaultAppUrl = value
+  if (name === 'glockeUrl') config.glockeUrl = value
+}
+
+beforeEach(() => {
+  window.__HOF_CONFIG__ = { ...defaultRuntimeConfig, allowedReturnOrigins: [...defaultRuntimeConfig.allowedReturnOrigins] }
+})
 
 // ---------------------------------------------------------------------------
 // localStorage stub

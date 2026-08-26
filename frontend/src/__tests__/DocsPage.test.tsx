@@ -72,7 +72,7 @@ describe('DocsPage — session bootstrap', () => {
 
 describe('DocsPage — access denied for non-admin users', () => {
   it('keeps the authenticated Glocke bell on the access-denied surface', async () => {
-    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.docs.test')
+    stubRuntimeConfig('glockeUrl', 'https://glocke.docs.test')
     mockRefreshSession.mockResolvedValue({ accessToken: 'denied-token' })
     mockFetchMe.mockResolvedValue(PLAIN_USER)
     const { DocsPage } = await setLocation('')
@@ -99,7 +99,7 @@ describe('DocsPage — access denied for non-admin users', () => {
 
 describe('DocsPage — admin content', () => {
   it('passes the authenticated docs page token to the shared Header Glocke request', async () => {
-    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.docs.test')
+    stubRuntimeConfig('glockeUrl', 'https://glocke.docs.test')
     mockRefreshSession.mockResolvedValue({ accessToken: 'token-abc' })
     mockFetchMe.mockResolvedValue(ADMIN_USER)
     mockFetchOpenApiSpec.mockResolvedValue(OPENAPI_SPEC)
@@ -114,7 +114,7 @@ describe('DocsPage — admin content', () => {
   })
 
   it('publishes a Header refresh to the page so docs API actions use the replacement token', async () => {
-    vi.stubEnv('VITE_GLOCKE_URL', 'https://glocke.docs.test')
+    stubRuntimeConfig('glockeUrl', 'https://glocke.docs.test')
     mockRefreshSession
       .mockResolvedValueOnce({ accessToken: 'expired-token' })
       .mockResolvedValue({ accessToken: 'fresh-token' })
