@@ -21,12 +21,12 @@ afterEach(() => {
 })
 
 describe('MIGRATE_ON_STARTUP', () => {
-  it.each([undefined, '', 'true'])('enables migration for %s', (value) => {
-    expect(parseMigrateOnStartup(value)).toBe(true)
+  it.each([undefined, '', 'false'])('disables migration for %s', (value) => {
+    expect(parseMigrateOnStartup(value)).toBe(false)
   })
 
-  it('disables migration only for false', () => {
-    expect(parseMigrateOnStartup('false')).toBe(false)
+  it('enables migration only for true', () => {
+    expect(parseMigrateOnStartup('true')).toBe(true)
   })
 
   it.each(['TRUE', 'False', '0', ' true ', 'yes'])('rejects %s', (value) => {

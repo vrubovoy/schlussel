@@ -6,6 +6,10 @@ on:
     tags: ['v*']
   pull_request:
 
+concurrency:
+  group: publish-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -68,8 +72,40 @@ jobs:
       - run: pnpm --filter frontend lint
       - run: pnpm --filter frontend test
 
-  publish:
+  publish-preflight:
     needs: [backend, frontend]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Validate release ref and refuse overwrite
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          semver='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$'
+          if [[ ! "$tag" =~ $semver ]]; then
+            echo "::error::Release ref must be vX.Y.Z SemVer (prerelease allowed; build metadata is not representable in an OCI tag): $tag" >&2
+            exit 1
+          fi
+          for image in schlussel schlussel-frontend; do
+            ref="ghcr.io/vrubovoy/${image}:${tag}"
+            if docker buildx imagetools inspect "$ref" >/dev/null 2>&1; then
+              echo "::error::${ref} already exists - release tags are immutable, use a new version." >&2
+              exit 1
+            fi
+          done
+
+  publish:
+    needs: publish-preflight
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -101,19 +137,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      # A release tag (vX.Y.Z) is a published, citable version - it must
-      # never silently move to point at different image content. `latest`
-      # and the per-commit sha tag are a floating/dev channel and are
-      # exempt from this check by design.
-      - name: Refuse to overwrite an existing release tag
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          tag="${GITHUB_REF#refs/tags/}"
-          if docker buildx imagetools inspect "ghcr.io/vrubovoy/${{ matrix.image }}:${tag}" >/dev/null 2>&1; then
-            echo "::error::ghcr.io/vrubovoy/${{ matrix.image }}:${tag} already exists - release tags are immutable, use a new version." >&2
-            exit 1
-          fi
 
       - name: Compute image tags
         id: tags

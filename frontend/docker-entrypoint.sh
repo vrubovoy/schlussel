@@ -8,7 +8,7 @@ printf 'window.__HOF_CONFIG__ = ' > "$config_tmp"
 jq -cn \
   --arg origins "${ALLOWED_RETURN_ORIGINS:-https://localhost,https://auth.localhost,https://kuvert.localhost,https://tafel.localhost,https://zettel.localhost,https://glocke.localhost}" \
   --arg defaultAppUrl "${DEFAULT_APP_URL:-https://localhost}" \
-  --arg glockeUrl "${GLOCKE_URL:-https://glocke.localhost}" \
+  --arg glockeUrl "${GLOCKE_URL:-}" \
   --argjson glockeEnabled "$([ -n "${GLOCKE_URL:-}" ] && echo true || echo false)" \
   '{
     schemaVersion: 1,

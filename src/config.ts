@@ -127,7 +127,9 @@ export interface NotificationConfig {
 export function loadNotificationConfig(
   env: NodeJS.ProcessEnv = process.env,
   files: SecretFileAccess = defaultSecretFileAccess,
-): NotificationConfig {
+): NotificationConfig | null {
+  const enabled = env['GLOCKE_ENABLED'] === 'true'
+  if (!enabled) return null
   const leaseMs = positiveInteger(env, 'GLOCKE_OUTBOX_LEASE_MS', 30_000)
   const fetchTimeoutMs = positiveInteger(env, 'GLOCKE_FETCH_TIMEOUT_MS', 10_000)
   const baseDelayMs = positiveInteger(env, 'GLOCKE_RETRY_BASE_DELAY_MS', 1_000)

@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url'
 const migrationsFolder = join(dirname(fileURLToPath(import.meta.url)), 'migrations')
 
 export function parseMigrateOnStartup(value: string | undefined): boolean {
-  if (value == null || value === '' || value === 'true') return true
-  if (value === 'false') return false
+  if (value === 'true') return true
+  if (value == null || value === '' || value === 'false') return false
   throw new Error('MIGRATE_ON_STARTUP must be true or false')
 }
 

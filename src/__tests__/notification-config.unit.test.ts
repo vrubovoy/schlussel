@@ -14,6 +14,7 @@ function files(contents: Buffer | string, options: { regular?: boolean; size?: n
 
 function validEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return {
+    GLOCKE_ENABLED: 'true',
     GLOCKE_BASE_URL: 'http://glocke-backend:3004',
     SCHLUSSEL_TO_GLOCKE_HMAC_KEY_ID: 'schlussel-v1',
     SCHLUSSEL_TO_GLOCKE_HMAC_SECRET: 's'.repeat(32),
@@ -24,6 +25,10 @@ function validEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
 }
 
 describe('notification startup configuration', () => {
+  it('is disabled without Glocke and does not require credentials', () => {
+    expect(loadNotificationConfig({})).toBeNull()
+    expect(loadNotificationConfig({ GLOCKE_ENABLED: 'false' })).toBeNull()
+  })
   it('loads safe credentials, URL, and positive timing defaults', () => {
     expect(loadNotificationConfig(validEnv())).toMatchObject({
       glockeBaseUrl: 'http://glocke-backend:3004',

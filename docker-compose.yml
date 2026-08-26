@@ -19,16 +19,18 @@ services:
       - schlussel-data:/data
     environment:
       - DATABASE_PATH=/data/schlussel.db
+      - SERVICE_VERSION=${SCHLUSSEL_SERVICE_VERSION:-}
+      - BUILD_SHA=${SCHLUSSEL_BUILD_SHA:-}
       - KEYS_DIR=/data/keys
       - EXPORT_DIR=/data/exports
       - PORT=4000
       - JWT_ISSUER=schlussel
-      - KUVERT_EXPORT_URL=${KUVERT_EXPORT_URL:-http://kuvert-backend:3001/exports/me}
-      - TAFEL_EXPORT_URL=${TAFEL_EXPORT_URL:-http://tafel-backend:3002/exports/me}
-      - ZETTEL_EXPORT_URL=${ZETTEL_EXPORT_URL:-http://zettel-backend:3003/exports/me}
-      - GLOCKE_EXPORT_URL=${GLOCKE_EXPORT_URL:-http://glocke-backend:3004/exports/me}
-      - SCHRANK_EXPORT_URL=${SCHRANK_EXPORT_URL:-http://schrank-backend:3005/exports/me}
-      - HEROLD_EXPORT_URL=${HEROLD_EXPORT_URL:-http://herold-backend:3006/exports/me}
+      - KUVERT_EXPORT_URL=${KUVERT_EXPORT_URL:-}
+      - TAFEL_EXPORT_URL=${TAFEL_EXPORT_URL:-}
+      - ZETTEL_EXPORT_URL=${ZETTEL_EXPORT_URL:-}
+      - GLOCKE_EXPORT_URL=${GLOCKE_EXPORT_URL:-}
+      - SCHRANK_EXPORT_URL=${SCHRANK_EXPORT_URL:-}
+      - HEROLD_EXPORT_URL=${HEROLD_EXPORT_URL:-}
       - EXPORT_DISPATCH_INTERVAL_MS=${EXPORT_DISPATCH_INTERVAL_MS:-1000}
       - EXPORT_REQUEST_TIMEOUT_MS=${EXPORT_REQUEST_TIMEOUT_MS:-15000}
       - EXPORT_LEASE_MS=${EXPORT_LEASE_MS:-120000}
@@ -42,11 +44,12 @@ services:
       - EXPORT_MAX_RETAINED_ARTIFACT_BYTES_PER_USER=${EXPORT_MAX_RETAINED_ARTIFACT_BYTES_PER_USER:-314572800}
       - EXPORT_STORAGE_QUOTA_BYTES=${EXPORT_STORAGE_QUOTA_BYTES:-1073741824}
       - EXPORT_MIN_FREE_BYTES=${EXPORT_MIN_FREE_BYTES:-268435456}
-      - GLOCKE_BASE_URL=http://glocke-backend:3004
+      - GLOCKE_ENABLED=${GLOCKE_ENABLED:-false}
+      - GLOCKE_BASE_URL=${GLOCKE_BASE_URL:-}
       - SCHLUSSEL_TO_GLOCKE_HMAC_KEY_ID=${SCHLUSSEL_TO_GLOCKE_HMAC_KEY_ID:-schlussel-v1}
-      - SCHLUSSEL_TO_GLOCKE_HMAC_SECRET=${SCHLUSSEL_TO_GLOCKE_HMAC_SECRET:?set SCHLUSSEL_TO_GLOCKE_HMAC_SECRET}
+      - SCHLUSSEL_TO_GLOCKE_HMAC_SECRET=${SCHLUSSEL_TO_GLOCKE_HMAC_SECRET:-}
       - GLOCKE_TO_SCHLUSSEL_HMAC_KEY_ID=${GLOCKE_TO_SCHLUSSEL_HMAC_KEY_ID:-glocke-v1}
-      - GLOCKE_TO_SCHLUSSEL_HMAC_SECRET=${GLOCKE_TO_SCHLUSSEL_HMAC_SECRET:?set GLOCKE_TO_SCHLUSSEL_HMAC_SECRET}
+      - GLOCKE_TO_SCHLUSSEL_HMAC_SECRET=${GLOCKE_TO_SCHLUSSEL_HMAC_SECRET:-}
       - GLOCKE_SIGNATURE_MAX_SKEW_SECONDS=${GLOCKE_SIGNATURE_MAX_SKEW_SECONDS:-300}
       - GLOCKE_DISPATCH_INTERVAL_MS=${GLOCKE_DISPATCH_INTERVAL_MS:-1000}
       - GLOCKE_OUTBOX_LEASE_MS=${GLOCKE_OUTBOX_LEASE_MS:-30000}
@@ -55,12 +58,12 @@ services:
       - GLOCKE_MAX_ATTEMPTS=${GLOCKE_MAX_ATTEMPTS:-8}
       - GLOCKE_RETRY_BASE_DELAY_MS=${GLOCKE_RETRY_BASE_DELAY_MS:-1000}
       - GLOCKE_RETRY_MAX_DELAY_MS=${GLOCKE_RETRY_MAX_DELAY_MS:-900000}
-      - KUVERT_DELETION_URL=${KUVERT_DELETION_URL:-http://kuvert-backend:3001/internal/v1/account-deletions}
-      - TAFEL_DELETION_URL=${TAFEL_DELETION_URL:-http://tafel-backend:3002/internal/v1/account-deletions}
-      - ZETTEL_DELETION_URL=${ZETTEL_DELETION_URL:-http://zettel-backend:3003/internal/v1/account-deletions}
-      - GLOCKE_DELETION_URL=${GLOCKE_DELETION_URL:-http://glocke-backend:3004/internal/v1/account-deletions}
-      - SCHRANK_DELETION_URL=${SCHRANK_DELETION_URL:-http://schrank-backend:3005/internal/v1/account-deletions}
-      - HEROLD_DELETION_URL=${HEROLD_DELETION_URL:-http://herold-backend:3006/internal/v1/account-deletions}
+      - KUVERT_DELETION_URL=${KUVERT_DELETION_URL:-}
+      - TAFEL_DELETION_URL=${TAFEL_DELETION_URL:-}
+      - ZETTEL_DELETION_URL=${ZETTEL_DELETION_URL:-}
+      - GLOCKE_DELETION_URL=${GLOCKE_DELETION_URL:-}
+      - SCHRANK_DELETION_URL=${SCHRANK_DELETION_URL:-}
+      - HEROLD_DELETION_URL=${HEROLD_DELETION_URL:-}
       - DELETION_DISPATCH_INTERVAL_MS=${DELETION_DISPATCH_INTERVAL_MS:-1000}
       - DELETION_LEASE_MS=${DELETION_LEASE_MS:-30000}
       - DELETION_FETCH_TIMEOUT_MS=${DELETION_FETCH_TIMEOUT_MS:-10000}
@@ -76,7 +79,7 @@ services:
       # changed.
       - ALLOWED_ORIGINS=${SCHLUSSEL_ALLOWED_ORIGINS:-https://localhost,https://auth.localhost,https://kuvert.localhost,https://tafel.localhost,https://zettel.localhost,https://glocke.localhost}
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/ready"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -90,7 +93,7 @@ services:
     environment:
       - ALLOWED_RETURN_ORIGINS=${ALLOWED_RETURN_ORIGINS:-https://localhost,https://auth.localhost,https://kuvert.localhost,https://tafel.localhost,https://zettel.localhost,https://glocke.localhost}
       - DEFAULT_APP_URL=${DEFAULT_APP_URL:-https://localhost}
-      - GLOCKE_URL=${GLOCKE_URL:-https://glocke.localhost}
+      - GLOCKE_URL=${GLOCKE_URL:-}
     restart: unless-stopped
     networks:
       - schloss-net

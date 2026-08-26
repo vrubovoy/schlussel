@@ -8,7 +8,7 @@
     "predev": "pnpm --filter @zudar107/schloss-server-kit build",
     "dev": "tsx watch src/index.ts",
     "prebuild": "pnpm --filter @zudar107/schloss-server-kit build",
-    "build": "tsc",
+    "build": "tsc && node -e \"require('node:fs').cpSync('src/db/migrations', 'dist/db/migrations', { recursive: true })\"",
     "start": "node dist/index.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node dist/migrate.js",
