@@ -3,7 +3,7 @@ import { beforeEach } from 'vitest'
 
 declare global {
   function stubRuntimeConfig(
-    name: 'allowedReturnOrigins' | 'defaultAppUrl' | 'glockeUrl',
+    name: 'allowedReturnOrigins' | 'defaultAppUrl' | 'glockeUrl' | 'glockeEnabled',
     value: string,
   ): void
 }
@@ -20,19 +20,29 @@ const defaultRuntimeConfig = {
   ],
   defaultAppUrl: 'http://localhost:3000',
   glockeUrl: 'http://localhost:5177',
+  services: { glocke: true },
 }
 
-window.__HOF_CONFIG__ = { ...defaultRuntimeConfig, allowedReturnOrigins: [...defaultRuntimeConfig.allowedReturnOrigins] }
+function cloneDefaultRuntimeConfig(): typeof defaultRuntimeConfig {
+  return {
+    ...defaultRuntimeConfig,
+    allowedReturnOrigins: [...defaultRuntimeConfig.allowedReturnOrigins],
+    services: { ...defaultRuntimeConfig.services },
+  }
+}
+
+window.__HOF_CONFIG__ = cloneDefaultRuntimeConfig()
 
 globalThis.stubRuntimeConfig = (name, value) => {
   const config = window.__HOF_CONFIG__ as typeof defaultRuntimeConfig
   if (name === 'allowedReturnOrigins') config.allowedReturnOrigins = value.split(',')
   if (name === 'defaultAppUrl') config.defaultAppUrl = value
   if (name === 'glockeUrl') config.glockeUrl = value
+  if (name === 'glockeEnabled') config.services = { glocke: value === 'true' }
 }
 
 beforeEach(() => {
-  window.__HOF_CONFIG__ = { ...defaultRuntimeConfig, allowedReturnOrigins: [...defaultRuntimeConfig.allowedReturnOrigins] }
+  window.__HOF_CONFIG__ = cloneDefaultRuntimeConfig()
 })
 
 // ---------------------------------------------------------------------------

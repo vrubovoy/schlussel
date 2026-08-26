@@ -255,7 +255,11 @@ existing session itself, bouncing through `/login` if there isn't one). The thir
 `GLOCKE_URL`, is Glocke's public origin. Authenticated account, admin, docs,
 and access-denied headers use it for the notification-center link and shared unread
 polling; public and pre-auth headers do not contact Glocke. Compose receives it from
-`GLOCKE_URL` and defaults to `https://glocke.localhost`. A successful bell refresh
+`GLOCKE_URL` and defaults to `https://glocke.localhost`. The generated config also
+carries `services.glocke`, derived from whether `GLOCKE_URL` was actually set in the
+deployment environment (not from the fallback default) - a deployment with Glocke
+disabled shows no bell and never polls it, rather than polling an origin that isn't
+there. A successful bell refresh
 updates the page-owned token used by subsequent account, admin, and docs requests;
 all same-origin session refresh callers share one in-flight request so the rotating
 session cookie cannot be raced. The runtime parser requires schema version 1, validates

@@ -17,7 +17,18 @@ describe('parseRuntimeConfig', () => {
       allowedReturnOrigins: ['https://example.com', 'http://localhost:8080'],
       defaultAppUrl: 'https://example.com/apps',
       glockeUrl: 'https://glocke.example.com',
+      services: { glocke: true },
     })
+  })
+
+  it('defaults services.glocke to enabled when missing or malformed', () => {
+    expect(parseRuntimeConfig({}).services).toEqual({ glocke: true })
+    expect(parseRuntimeConfig({ services: null }).services).toEqual({ glocke: true })
+    expect(parseRuntimeConfig({ services: { glocke: 'nope' } }).services).toEqual({ glocke: true })
+  })
+
+  it('honors an explicit services.glocke: false', () => {
+    expect(parseRuntimeConfig({ services: { glocke: false } }).services).toEqual({ glocke: false })
   })
 
   it.each([
