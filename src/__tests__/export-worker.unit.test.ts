@@ -20,6 +20,15 @@ process.env['DATABASE_PATH'] = DB_PATH
 process.env['KEYS_DIR'] = KEYS_DIR
 process.env['EXPORT_DIR'] = EXPORT_DIR
 process.env['JWT_ISSUER'] = 'schlussel'
+// All six optional services enabled, matching this file's existing
+// assumption that EXPORT_SERVICES always has all seven entries - a
+// dedicated test below exercises the topology-aware filtering itself.
+process.env['KUVERT_EXPORT_URL'] = 'http://kuvert-backend:3001/exports/me'
+process.env['TAFEL_EXPORT_URL'] = 'http://tafel-backend:3002/exports/me'
+process.env['ZETTEL_EXPORT_URL'] = 'http://zettel-backend:3003/exports/me'
+process.env['GLOCKE_EXPORT_URL'] = 'http://glocke-backend:3004/exports/me'
+process.env['SCHRANK_EXPORT_URL'] = 'http://schrank-backend:3005/exports/me'
+process.env['HEROLD_EXPORT_URL'] = 'http://herold-backend:3006/exports/me'
 
 type ServiceName = 'schlussel' | 'kuvert' | 'tafel' | 'zettel' | 'glocke' | 'schrank' | 'herold'
 
@@ -78,6 +87,7 @@ let sqlite: import('better-sqlite3').Database
 let ownerId: string
 let accessToken: string
 let EXPORT_SERVICES: readonly ServiceDefinition[]
+let createExportServices: (config: Record<string, string | undefined>) => readonly ServiceDefinition[]
 let dispatchExportJobBatch: (options: WorkerOptions) => Promise<number>
 let cleanupExpiredExports: (options: CleanupOptions) => Promise<number> | number
 let createSchlusselSnapshot: (ownerUserId: string, now?: Date) => unknown
@@ -98,6 +108,7 @@ beforeAll(async () => {
 
   sqlite = dbModule.sqlite
   EXPORT_SERVICES = workerModule.EXPORT_SERVICES
+  createExportServices = workerModule.createExportServices
   dispatchExportJobBatch = workerModule.dispatchExportJobBatch
   cleanupExpiredExports = workerModule.cleanupExpiredExports
   createSchlusselSnapshot = snapshotModule.createSchlusselSnapshot
@@ -267,6 +278,26 @@ describe('export worker service delegation', () => {
     ])
     expect(Object.isFrozen(EXPORT_SERVICES)).toBe(true)
     expect(EXPORT_SERVICES.every((service) => Object.isFrozen(service))).toBe(true)
+  })
+
+  it('keeps Schlussel plus only the services with a configured export URL, in a deployment with some disabled', () => {
+    const services = createExportServices({
+      kuvertUrl: 'http://kuvert-backend:3001/exports/me',
+      tafelUrl: undefined,
+      zettelUrl: undefined,
+      glockeUrl: 'http://glocke-backend:3004/exports/me',
+      schrankUrl: undefined,
+      heroldUrl: undefined,
+    })
+    expect(services.map((service) => service.service)).toEqual(['schlussel', 'kuvert', 'glocke'])
+  })
+
+  it('keeps only Schlussel when every optional service is disabled', () => {
+    const services = createExportServices({
+      kuvertUrl: undefined, tafelUrl: undefined, zettelUrl: undefined,
+      glockeUrl: undefined, schrankUrl: undefined, heroldUrl: undefined,
+    })
+    expect(services).toEqual([{ service: 'schlussel', audience: 'hof-service:schlussel', kind: 'local' }])
   })
 
   it('mints a distinct short-lived export-only JWT for each exact audience', async () => {
