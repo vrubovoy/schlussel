@@ -2,14 +2,20 @@ import { describe, expect, it } from 'vitest'
 import { loadDeletionConfig } from '../config.js'
 
 describe('account deletion configuration', () => {
-  it('loads the fixed six-service internal endpoint registry and bounded defaults', () => {
+  it('treats a deployment with no configured deletion URLs as having no optional services enabled', () => {
     const config = loadDeletionConfig({})
-    expect(Object.keys(config.serviceUrls)).toEqual([
-      'kuvert', 'tafel', 'zettel', 'glocke', 'schrank', 'herold',
-    ])
-    expect(config.serviceUrls.schrank).toBe('http://schrank-backend:3005/internal/v1/account-deletions')
+    expect(config.serviceUrls).toEqual({})
     expect(config.maxAttempts).toBe(8)
     expect(config.fetchTimeoutMs).toBeLessThan(config.leaseMs)
+  })
+
+  it('resolves only the deletion URLs an operator actually configured', () => {
+    const config = loadDeletionConfig({
+      SCHRANK_DELETION_URL: 'http://schrank-backend:3005/internal/v1/account-deletions',
+      HEROLD_DELETION_URL: 'http://herold-backend:3006/internal/v1/account-deletions',
+    })
+    expect(Object.keys(config.serviceUrls)).toEqual(['schrank', 'herold'])
+    expect(config.serviceUrls.schrank).toBe('http://schrank-backend:3005/internal/v1/account-deletions')
   })
 
   it.each([

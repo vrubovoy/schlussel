@@ -28,6 +28,15 @@ const MIGRATIONS_DIR = fileURLToPath(new URL('../db/migrations', import.meta.url
 process.env['DATABASE_PATH'] = DB_PATH
 process.env['KEYS_DIR'] = KEYS_DIR
 process.env['JWT_ISSUER'] = 'schlussel'
+// All six optional services enabled - this file's self-deletion assertions
+// expect a full six-target deletion job; the disabled-service filtering
+// itself belongs to deletion-config.unit.test.ts.
+process.env['KUVERT_DELETION_URL'] = 'http://kuvert-backend:3001/internal/v1/account-deletions'
+process.env['TAFEL_DELETION_URL'] = 'http://tafel-backend:3002/internal/v1/account-deletions'
+process.env['ZETTEL_DELETION_URL'] = 'http://zettel-backend:3003/internal/v1/account-deletions'
+process.env['GLOCKE_DELETION_URL'] = 'http://glocke-backend:3004/internal/v1/account-deletions'
+process.env['SCHRANK_DELETION_URL'] = 'http://schrank-backend:3005/internal/v1/account-deletions'
+process.env['HEROLD_DELETION_URL'] = 'http://herold-backend:3006/internal/v1/account-deletions'
 
 // ── Module handles populated in beforeAll ───────────────────────────────────
 let app: Hono

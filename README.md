@@ -119,9 +119,11 @@ to be upfront about which parts are real today and which are groundwork:
   is always empty in practice — Telegram is the only planned provider and there's no bot
   yet to hand a connect flow off to.
 - **Data export** keeps `GET /export` for an immediate Schlüssel-only JSON snapshot. The
-  `/export-jobs` API creates a durable owner-scoped platform ZIP from the fixed internal
-  Schlüssel/Kuvert/Tafel/Zettel/Glocke/Schrank/Herold registry. It exposes progress, cancellation,
-  failed-service retry, expiring authenticated downloads, and partial archives.
+  `/export-jobs` API creates a durable owner-scoped platform ZIP from the internal
+  Kuvert/Tafel/Zettel/Glocke/Schrank/Herold registry, topology-aware since each service is
+  included only if this deployment actually enables it (its `*_EXPORT_URL` is configured).
+  It exposes progress, cancellation, failed-service retry, expiring authenticated downloads,
+  and partial archives.
 
 ### Data export contracts
 
@@ -130,9 +132,11 @@ direct JSON export of Schlüssel-owned account data. Kuvert, Tafel, Zettel, Gloc
 and Herold each
 retain their own synchronous `GET /exports/me` JSON endpoint. Only Schlüssel's
 `POST /export-jobs` starts the asynchronous all-services ZIP; Schlüssel reads its own
-snapshot locally and calls the other six deployment-owned `/exports/me` URLs. New jobs
-contain seven service rows; retained historical jobs keep their original five rows and
-remain readable without backfill.
+snapshot locally and calls every other *enabled* service's deployment-owned `/exports/me`
+URL - a service this deployment hasn't enabled (no `*_EXPORT_URL` configured) never appears
+in the job at all, not even as a failure. New jobs contain one row per enabled service (up
+to seven, Schlüssel plus six); retained historical jobs keep whatever row set they were
+created with and remain readable without backfill.
 
 Remote calls use short-lived RS256 export delegations verified through the same JWKS and
 exact issuer as access tokens. A delegation must have `token_use: export`, the single exact
@@ -213,14 +217,14 @@ See `.env.example` for the API. The important ones:
 | `GLOCKE_DISPATCH_INTERVAL_MS` / `GLOCKE_OUTBOX_LEASE_MS` / `GLOCKE_FETCH_TIMEOUT_MS` | Positive worker timings; fetch timeout must remain shorter than the lease |
 | `GLOCKE_WORKER_STOP_TIMEOUT_MS` | Bound on waiting for the active worker during shutdown (default `5000`) |
 | `GLOCKE_MAX_ATTEMPTS` / `GLOCKE_RETRY_BASE_DELAY_MS` / `GLOCKE_RETRY_MAX_DELAY_MS` | Positive durable retry limits and backoff bounds |
-| `KUVERT_EXPORT_URL` / `TAFEL_EXPORT_URL` / `ZETTEL_EXPORT_URL` / `GLOCKE_EXPORT_URL` / `SCHRANK_EXPORT_URL` / `HEROLD_EXPORT_URL` | Deployment-owned internal `/exports/me` registry; request data can never override these URLs |
+| `KUVERT_EXPORT_URL` / `TAFEL_EXPORT_URL` / `ZETTEL_EXPORT_URL` / `GLOCKE_EXPORT_URL` / `SCHRANK_EXPORT_URL` / `HEROLD_EXPORT_URL` | Deployment-owned internal `/exports/me` registry; request data can never override these URLs. Each is optional - set it only for a service this deployment enables, an unset one is skipped rather than attempted |
 | `EXPORT_REQUEST_TIMEOUT_MS` / `EXPORT_LEASE_MS` / `EXPORT_DISPATCH_INTERVAL_MS` | Export request, fenced lease, and polling timings; request timeout must be shorter than the lease |
 | `EXPORT_MAX_SERVICE_BYTES` / `EXPORT_MAX_AGGREGATE_BYTES` / `EXPORT_MAX_CONCURRENCY` | Per-service, whole-job, and concurrency bounds |
 | `EXPORT_ARTIFACT_TTL_MS` / `EXPORT_WORKER_STOP_TIMEOUT_MS` | Artifact retention and graceful shutdown bounds |
 | `EXPORT_USER_COOLDOWN_MS` / `EXPORT_MAX_RETAINED_JOBS_PER_USER` | Per-user creation cooldown and retained-job cap |
 | `EXPORT_MAX_RETAINED_ARTIFACT_BYTES_PER_USER` | Per-user retained ZIP byte cap |
 | `EXPORT_STORAGE_QUOTA_BYTES` / `EXPORT_MIN_FREE_BYTES` | Global export-directory quota and filesystem free-space reserve, checked before writes |
-| `KUVERT_DELETION_URL` / `TAFEL_DELETION_URL` / `ZETTEL_DELETION_URL` / `GLOCKE_DELETION_URL` / `SCHRANK_DELETION_URL` / `HEROLD_DELETION_URL` | Deployment-owned internal account deletion endpoints; request data cannot override these URLs |
+| `KUVERT_DELETION_URL` / `TAFEL_DELETION_URL` / `ZETTEL_DELETION_URL` / `GLOCKE_DELETION_URL` / `SCHRANK_DELETION_URL` / `HEROLD_DELETION_URL` | Deployment-owned internal account deletion endpoints; request data cannot override these URLs. Each is optional - a disabled service never gets a deletion target enqueued |
 | `DELETION_DISPATCH_INTERVAL_MS` / `DELETION_LEASE_MS` / `DELETION_FETCH_TIMEOUT_MS` | Deletion polling, fenced lease, and request timings; timeout must be shorter than the lease |
 | `DELETION_MAX_ATTEMPTS` / `DELETION_RETRY_BASE_DELAY_MS` / `DELETION_RETRY_MAX_DELAY_MS` | Positive bounded account deletion retry and full-jitter backoff settings |
 | `DELETION_WORKER_STOP_TIMEOUT_MS` | Bound on graceful deletion-worker shutdown (default `5000`) |

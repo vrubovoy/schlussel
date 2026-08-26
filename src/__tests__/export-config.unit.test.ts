@@ -4,14 +4,30 @@ import { loadExportConfig } from '../config.js'
 describe('export startup configuration', () => {
   it('uses conservative concurrency, retention, and filesystem safety defaults', () => {
     expect(loadExportConfig({})).toMatchObject({
-      schrankUrl: 'http://schrank-backend:3005/exports/me',
-      heroldUrl: 'http://herold-backend:3006/exports/me',
       maxConcurrency: 1,
       userCooldownMs: 60_000,
       maxRetainedJobsPerUser: 3,
       maxRetainedArtifactBytesPerUser: 300 * 1024 * 1024,
       storageQuotaBytes: 1024 * 1024 * 1024,
       minFreeBytes: 256 * 1024 * 1024,
+    })
+  })
+
+  it('treats an unconfigured service URL as disabled, not a fallback internal hostname', () => {
+    expect(loadExportConfig({})).toMatchObject({
+      kuvertUrl: undefined,
+      tafelUrl: undefined,
+      zettelUrl: undefined,
+      glockeUrl: undefined,
+      schrankUrl: undefined,
+      heroldUrl: undefined,
+    })
+  })
+
+  it('resolves only the service URLs an operator actually configured', () => {
+    expect(loadExportConfig({ SCHRANK_EXPORT_URL: 'http://schrank-backend:3005/exports/me' })).toMatchObject({
+      schrankUrl: 'http://schrank-backend:3005/exports/me',
+      heroldUrl: undefined,
     })
   })
 

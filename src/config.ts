@@ -157,12 +157,12 @@ export function loadNotificationConfig(
 
 export interface ExportConfig {
   exportDir: string
-  kuvertUrl: string
-  tafelUrl: string
-  zettelUrl: string
-  glockeUrl: string
-  schrankUrl: string
-  heroldUrl: string
+  kuvertUrl: string | undefined
+  tafelUrl: string | undefined
+  zettelUrl: string | undefined
+  glockeUrl: string | undefined
+  schrankUrl: string | undefined
+  heroldUrl: string | undefined
   dispatchIntervalMs: number
   requestTimeoutMs: number
   leaseMs: number
@@ -178,8 +178,13 @@ export interface ExportConfig {
   minFreeBytes: number
 }
 
-function exportServiceUrl(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
-  const raw = env[name] ?? fallback
+// Unset means this service isn't enabled in this deployment - not an error,
+// and not a reason to fall back to an internal Compose hostname that may not
+// exist. See ExportConfig/createExportServices for how an absent URL keeps
+// that service out of the dispatch registry entirely.
+function exportServiceUrl(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const raw = env[name]
+  if (raw === undefined || raw === '') return undefined
   let url: URL
   try {
     url = new URL(raw)
@@ -225,12 +230,12 @@ export function loadExportConfig(env: NodeJS.ProcessEnv = process.env): ExportCo
   if (!exportDir.trim()) throw new Error('EXPORT_DIR must not be empty')
   return {
     exportDir,
-    kuvertUrl: exportServiceUrl(env, 'KUVERT_EXPORT_URL', 'http://kuvert-backend:3001/exports/me'),
-    tafelUrl: exportServiceUrl(env, 'TAFEL_EXPORT_URL', 'http://tafel-backend:3002/exports/me'),
-    zettelUrl: exportServiceUrl(env, 'ZETTEL_EXPORT_URL', 'http://zettel-backend:3003/exports/me'),
-    glockeUrl: exportServiceUrl(env, 'GLOCKE_EXPORT_URL', 'http://glocke-backend:3004/exports/me'),
-    schrankUrl: exportServiceUrl(env, 'SCHRANK_EXPORT_URL', 'http://schrank-backend:3005/exports/me'),
-    heroldUrl: exportServiceUrl(env, 'HEROLD_EXPORT_URL', 'http://herold-backend:3006/exports/me'),
+    kuvertUrl: exportServiceUrl(env, 'KUVERT_EXPORT_URL'),
+    tafelUrl: exportServiceUrl(env, 'TAFEL_EXPORT_URL'),
+    zettelUrl: exportServiceUrl(env, 'ZETTEL_EXPORT_URL'),
+    glockeUrl: exportServiceUrl(env, 'GLOCKE_EXPORT_URL'),
+    schrankUrl: exportServiceUrl(env, 'SCHRANK_EXPORT_URL'),
+    heroldUrl: exportServiceUrl(env, 'HEROLD_EXPORT_URL'),
     dispatchIntervalMs: positiveInteger(env, 'EXPORT_DISPATCH_INTERVAL_MS', 1_000),
     requestTimeoutMs,
     leaseMs,
@@ -248,7 +253,9 @@ export function loadExportConfig(env: NodeJS.ProcessEnv = process.env): ExportCo
 }
 
 export interface DeletionConfig {
-  serviceUrls: Readonly<Record<'kuvert' | 'tafel' | 'zettel' | 'glocke' | 'schrank' | 'herold', string>>
+  // Absent means that service isn't enabled in this deployment - see
+  // deletionServiceUrl and ENABLED_DELETION_SERVICES in services/deletionSaga.ts.
+  serviceUrls: Readonly<Partial<Record<'kuvert' | 'tafel' | 'zettel' | 'glocke' | 'schrank' | 'herold', string>>>
   dispatchIntervalMs: number
   leaseMs: number
   fetchTimeoutMs: number
@@ -258,8 +265,9 @@ export interface DeletionConfig {
   maxDelayMs: number
 }
 
-function deletionServiceUrl(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
-  const raw = env[name] ?? fallback
+function deletionServiceUrl(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const raw = env[name]
+  if (raw === undefined || raw === '') return undefined
   let url: URL
   try { url = new URL(raw) } catch { throw new Error(`${name} must be a valid internal deletion URL`) }
   if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password ||
@@ -276,15 +284,18 @@ export function loadDeletionConfig(env: NodeJS.ProcessEnv = process.env): Deleti
   const maxDelayMs = positiveInteger(env, 'DELETION_RETRY_MAX_DELAY_MS', 15 * 60_000)
   if (fetchTimeoutMs >= leaseMs) throw new Error('DELETION_FETCH_TIMEOUT_MS must be shorter than DELETION_LEASE_MS')
   if (maxDelayMs < baseDelayMs) throw new Error('DELETION_RETRY_MAX_DELAY_MS must be at least DELETION_RETRY_BASE_DELAY_MS')
+  const candidateUrls: Record<'kuvert' | 'tafel' | 'zettel' | 'glocke' | 'schrank' | 'herold', string | undefined> = {
+    kuvert: deletionServiceUrl(env, 'KUVERT_DELETION_URL'),
+    tafel: deletionServiceUrl(env, 'TAFEL_DELETION_URL'),
+    zettel: deletionServiceUrl(env, 'ZETTEL_DELETION_URL'),
+    glocke: deletionServiceUrl(env, 'GLOCKE_DELETION_URL'),
+    schrank: deletionServiceUrl(env, 'SCHRANK_DELETION_URL'),
+    herold: deletionServiceUrl(env, 'HEROLD_DELETION_URL'),
+  }
   return {
-    serviceUrls: {
-      kuvert: deletionServiceUrl(env, 'KUVERT_DELETION_URL', 'http://kuvert-backend:3001/internal/v1/account-deletions'),
-      tafel: deletionServiceUrl(env, 'TAFEL_DELETION_URL', 'http://tafel-backend:3002/internal/v1/account-deletions'),
-      zettel: deletionServiceUrl(env, 'ZETTEL_DELETION_URL', 'http://zettel-backend:3003/internal/v1/account-deletions'),
-      glocke: deletionServiceUrl(env, 'GLOCKE_DELETION_URL', 'http://glocke-backend:3004/internal/v1/account-deletions'),
-      schrank: deletionServiceUrl(env, 'SCHRANK_DELETION_URL', 'http://schrank-backend:3005/internal/v1/account-deletions'),
-      herold: deletionServiceUrl(env, 'HEROLD_DELETION_URL', 'http://herold-backend:3006/internal/v1/account-deletions'),
-    },
+    serviceUrls: Object.fromEntries(
+      Object.entries(candidateUrls).filter(([, url]) => url !== undefined),
+    ) as DeletionConfig['serviceUrls'],
     dispatchIntervalMs: positiveInteger(env, 'DELETION_DISPATCH_INTERVAL_MS', 1_000),
     leaseMs,
     fetchTimeoutMs,

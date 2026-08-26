@@ -31,19 +31,32 @@ export interface ExportServiceDefinition {
   url?: string
 }
 
+// Schlussel (local) is mandatory core and always present. Every other
+// service only joins the registry if its export URL is configured - an
+// operator who hasn't enabled a service (e.g. Schrank) never has export
+// jobs dispatch to it, and it never appears in a job's manifest at all
+// (not as a failure - see dispatchExportJobBatch/writeZip).
 export function createExportServices(config: Pick<
   ExportConfig,
   'kuvertUrl' | 'tafelUrl' | 'zettelUrl' | 'glockeUrl' | 'schrankUrl' | 'heroldUrl'
 >) {
-  return Object.freeze([
+  const optional: Array<[Exclude<ExportServiceName, 'schlussel'>, string | undefined]> = [
+    ['kuvert', config.kuvertUrl],
+    ['tafel', config.tafelUrl],
+    ['zettel', config.zettelUrl],
+    ['glocke', config.glockeUrl],
+    ['schrank', config.schrankUrl],
+    ['herold', config.heroldUrl],
+  ]
+  const definitions: ExportServiceDefinition[] = [
     Object.freeze({ service: 'schlussel', audience: 'hof-service:schlussel', kind: 'local' }),
-    Object.freeze({ service: 'kuvert', audience: 'hof-service:kuvert', kind: 'http', url: config.kuvertUrl }),
-    Object.freeze({ service: 'tafel', audience: 'hof-service:tafel', kind: 'http', url: config.tafelUrl }),
-    Object.freeze({ service: 'zettel', audience: 'hof-service:zettel', kind: 'http', url: config.zettelUrl }),
-    Object.freeze({ service: 'glocke', audience: 'hof-service:glocke', kind: 'http', url: config.glockeUrl }),
-    Object.freeze({ service: 'schrank', audience: 'hof-service:schrank', kind: 'http', url: config.schrankUrl }),
-    Object.freeze({ service: 'herold', audience: 'hof-service:herold', kind: 'http', url: config.heroldUrl }),
-  ] satisfies ExportServiceDefinition[])
+  ]
+  for (const [service, url] of optional) {
+    if (url !== undefined) {
+      definitions.push(Object.freeze({ service, audience: `hof-service:${service}`, kind: 'http', url }))
+    }
+  }
+  return Object.freeze(definitions satisfies ExportServiceDefinition[])
 }
 
 const defaultConfig = loadExportConfig()

@@ -16,6 +16,15 @@ process.env['DATABASE_PATH'] = DB_PATH
 process.env['KEYS_DIR'] = KEYS_DIR
 process.env['EXPORT_DIR'] = EXPORT_DIR
 process.env['JWT_ISSUER'] = 'schlussel'
+// All six optional services enabled - this file exercises job creation/
+// listing/download across the full seven-service registry; the filtering
+// behavior itself is covered by export-worker.unit.test.ts.
+process.env['KUVERT_EXPORT_URL'] = 'http://kuvert-backend:3001/exports/me'
+process.env['TAFEL_EXPORT_URL'] = 'http://tafel-backend:3002/exports/me'
+process.env['ZETTEL_EXPORT_URL'] = 'http://zettel-backend:3003/exports/me'
+process.env['GLOCKE_EXPORT_URL'] = 'http://glocke-backend:3004/exports/me'
+process.env['SCHRANK_EXPORT_URL'] = 'http://schrank-backend:3005/exports/me'
+process.env['HEROLD_EXPORT_URL'] = 'http://herold-backend:3006/exports/me'
 
 interface JobResponse {
   id: string

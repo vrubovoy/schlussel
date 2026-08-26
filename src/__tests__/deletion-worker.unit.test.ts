@@ -23,7 +23,10 @@ process.env['DATABASE_PATH'] = DB_PATH
 process.env['KEYS_DIR'] = KEYS_DIR
 
 let sqlite: import('better-sqlite3').Database
+let db: import('../db/index.js')['db']
 let dispatch: typeof import('../services/deletionSaga.js')['dispatchDeletionTarget']
+let enqueueDeletionJob: typeof import('../services/deletionSaga.js')['enqueueDeletionJob']
+let enabledDeletionServices: typeof import('../services/deletionSaga.js')['enabledDeletionServices']
 
 beforeAll(async () => {
   mkdirSync(KEYS_DIR, { recursive: true })
@@ -33,7 +36,10 @@ beforeAll(async () => {
   ])
   await keys.initKeys()
   sqlite = database.sqlite
+  db = database.db
   dispatch = saga.dispatchDeletionTarget
+  enqueueDeletionJob = saga.enqueueDeletionJob
+  enabledDeletionServices = saga.enabledDeletionServices
   migrator.migrate(database.db, { migrationsFolder: MIGRATIONS_DIR })
 })
 
@@ -98,5 +104,40 @@ describe('account deletion target worker', () => {
     expect(sqlite.prepare('SELECT status, attempts, last_error FROM deletion_job_targets').get())
       .toEqual({ status: 'permanent', attempts: 3, last_error: 'HTTP 409' })
     expect(sqlite.prepare('SELECT status FROM deletion_jobs').get()).toEqual({ status: 'failed' })
+  })
+
+  it('fails a target permanently instead of hanging when its service has no configured URL', async () => {
+    insert('kuvert')
+    await dispatch(options(vi.fn<typeof fetch>(), { serviceUrls: {} }))
+    expect(sqlite.prepare('SELECT status, last_error FROM deletion_job_targets').get())
+      .toEqual({ status: 'permanent', last_error: 'kuvert has no configured deletion URL' })
+    expect(sqlite.prepare('SELECT status FROM deletion_jobs').get()).toEqual({ status: 'failed' })
+  })
+})
+
+describe('enqueueDeletionJob topology awareness', () => {
+  it('only enqueues targets for the services passed in as enabled', () => {
+    db.transaction((tx) => {
+      enqueueDeletionJob(tx, 'user-2', 'self', NOW.getTime(), 'job-2', ['schrank', 'herold'])
+    })
+    const targets = sqlite.prepare('SELECT service FROM deletion_job_targets WHERE job_id = ? ORDER BY service')
+      .all('job-2') as Array<{ service: string }>
+    expect(targets.map((row) => row.service)).toEqual(['herold', 'schrank'])
+    expect(sqlite.prepare('SELECT status FROM deletion_jobs WHERE id = ?').get('job-2')).toEqual({ status: 'pending' })
+  })
+
+  it('completes the job immediately when no optional service is enabled', () => {
+    db.transaction((tx) => {
+      enqueueDeletionJob(tx, 'user-3', 'self', NOW.getTime(), 'job-3', [])
+    })
+    expect(sqlite.prepare('SELECT count(*) AS count FROM deletion_job_targets WHERE job_id = ?').get('job-3'))
+      .toEqual({ count: 0 })
+    expect(sqlite.prepare('SELECT status, completed_at FROM deletion_jobs WHERE id = ?').get('job-3'))
+      .toEqual({ status: 'completed', completed_at: NOW.getTime() })
+  })
+
+  it('defaults to the deployment\'s enabled services, none configured in this test env', () => {
+    expect(enabledDeletionServices({ serviceUrls: {} })).toEqual([])
+    expect(enabledDeletionServices({ serviceUrls: { schrank: URLS.schrank } })).toEqual(['schrank'])
   })
 })
