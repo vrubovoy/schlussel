@@ -49,13 +49,14 @@ beforeAll(async () => {
 
   // Dynamic imports so env vars are already set when modules run their
   // top-level code.
-  const [keysModule, authModule, adminModule, dbModule, migratorModule, honoModule] =
+  const [keysModule, authModule, adminModule, dbModule, migratorModule, migrateHelperModule, honoModule] =
     await Promise.all([
       import('../utils/keys.js'),
       import('../routes/auth.js'),
       import('../routes/admin.js'),
       import('../db/index.js'),
       import('drizzle-orm/better-sqlite3/migrator'),
+      import('../db/migrate.js'),
       import('hono'),
     ])
 
@@ -65,6 +66,7 @@ beforeAll(async () => {
   const { adminRouter } = adminModule
   const { db, sqlite: sqliteInstance } = dbModule
   const { migrate } = migratorModule
+  const { assertSchemaCurrent } = migrateHelperModule
   const { Hono } = honoModule
 
   sqlite = sqliteInstance
@@ -75,6 +77,17 @@ beforeAll(async () => {
   const testApp = new Hono()
   testApp.get('/.well-known/jwks.json', (c) => c.json(getJwks()))
   testApp.get('/health', (c) => c.json({ status: 'ok' }))
+  // Mirrors the real /ready handler in src/index.ts, which this file
+  // doesn't import directly (importing it would call serve() for real -
+  // see the module comment above).
+  testApp.get('/ready', (c) => {
+    try {
+      assertSchemaCurrent(sqlite)
+      return c.json({ status: 'ready', service: 'Schlüssel' })
+    } catch {
+      return c.json({ status: 'unavailable', service: 'Schlüssel' }, 503)
+    }
+  })
   testApp.route('/auth', authRouter)
   // Mounted alongside authRouter, matching production (src/index.ts) -
   // several tests below mint a real invite to register a second user.
@@ -179,6 +192,41 @@ describe('GET /health', () => {
     expect(res.status).toBe(200)
     const body = await res.json() as Record<string, unknown>
     expect(body['status']).toBe('ok')
+  })
+})
+
+describe('GET /ready', () => {
+  it('returns 200 with status ready when the schema is current', async () => {
+    const res = await app.request('/ready')
+    expect(res.status).toBe(200)
+    const body = await res.json() as Record<string, unknown>
+    expect(body['status']).toBe('ready')
+  })
+
+  it('returns 503 with status unavailable when the migration tracking table is stale', async () => {
+    // See migrate.unit.test.ts's identical trick: drizzle-orm's better-
+    // sqlite3 migrator declares `id SERIAL PRIMARY KEY`, a Postgres-ism
+    // SQLite doesn't treat as a rowid alias, so `id` is always NULL here -
+    // target the implicit `rowid` instead. Deleting only removes the
+    // tracking row, not the tables/columns that migration already
+    // created, so restoring afterward re-inserts the same row rather
+    // than re-running the migration (which would fail on already-
+    // existing tables).
+    const latest = sqlite.prepare(
+      'SELECT rowid, hash, created_at FROM __drizzle_migrations ORDER BY rowid DESC LIMIT 1',
+    ).get() as { rowid: number; hash: string; created_at: number }
+    const deleted = sqlite.prepare('DELETE FROM __drizzle_migrations WHERE rowid = ?').run(latest.rowid)
+    expect(deleted.changes).toBe(1)
+    try {
+      const res = await app.request('/ready')
+      expect(res.status).toBe(503)
+      const body = await res.json() as Record<string, unknown>
+      expect(body['status']).toBe('unavailable')
+    } finally {
+      // Restore real schema currency so later tests in this file (which
+      // reuse the same sqlite connection/app instance) aren't affected.
+      sqlite.prepare('INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)').run(latest.hash, latest.created_at)
+    }
   })
 })
 
