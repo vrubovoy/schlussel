@@ -28,7 +28,7 @@ jobs:
       # pnpm 11.12.0 shipped with an internal bug in the self-installer
       # ("Cannot use 'in' operator to search for 'integrity' in
       # undefined"), unrelated to any change in this repo.
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6.0.9
         with:
           version: 11.7.0
 
@@ -58,7 +58,7 @@ jobs:
       # pnpm 11.12.0 shipped with an internal bug in the self-installer
       # ("Cannot use 'in' operator to search for 'integrity' in
       # undefined"), unrelated to any change in this repo.
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6.0.9
         with:
           version: 11.7.0
 
