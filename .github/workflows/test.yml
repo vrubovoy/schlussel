@@ -188,7 +188,7 @@ jobs:
             --source-digest "$GITHUB_SHA" --source-ref "$GITHUB_REF" >/dev/null
           echo "::notice::${img} is already published for ${tag} at ${GITHUB_SHA} - nothing to do."
 
-      - name: Build and push the immutable digest + a per-commit tag (not the release tag / latest yet)
+      - name: Build and push the immutable digest + staging tags (not the release tag / latest yet)
         if: steps.state.outputs.mode != 'exists'
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         id: build
@@ -197,7 +197,14 @@ jobs:
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
           push: true
-          tags: ${{ env.IMAGE }}:sha-${{ github.sha }}
+          # sha-<commit>          - human/external per-commit contract
+          # sha-<commit>-run-<id> - the staging tag finalize reads; run-id
+          #   (not run-attempt) so a "re-run failed jobs" of only finalize
+          #   still finds it. Scoped per run so a parallel main-run and
+          #   v*-tag-run of the same commit cannot clobber each other's.
+          tags: |
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+            ${{ env.IMAGE }}:sha-${{ github.sha }}-run-${{ github.run_id }}
 
       - name: Sign the digest with keyless Cosign
         if: steps.state.outputs.mode != 'exists'
@@ -255,9 +262,14 @@ jobs:
   # :latest a commit behind the other). This job does ONE tip check for
   # the whole run and, only if this commit is still origin/main's tip,
   # verifies every image's this-run digest (exact identity test.yml@REF +
-  # workflow SHA + both attestations bound to source digest/ref) and then
-  # moves EVERY :latest together. For a release-tag build it is the exact
-  # verifier of the just-assigned vX.Y.Z tag.
+  # workflow SHA + both attestations bound to source digest/ref) via the
+  # RUN-SCOPED staging tag, remembers each verified digest, and then moves
+  # each :latest to the REMEMBERED digest - never re-resolving a mutable
+  # tag that a parallel run could have moved. The two :latest updates are
+  # still two API calls, not one atomic swap: a failure between them turns
+  # the run red and a retry re-points both from the same verified digests.
+  # For a release-tag build this job is the exact verifier of the
+  # just-assigned vX.Y.Z tag (no :latest move).
   finalize:
     needs: publish
     if: github.event_name == 'push'
@@ -320,27 +332,32 @@ jobs:
           }
 
           # Pass 1 - resolve + verify every expected image's digest for
-          # THIS commit. On main that is the sha-<commit> tag the publish
-          # leg pushed; on a release tag it is the vX.Y.Z tag it assigned.
-          if $on_main; then key="sha-${GITHUB_SHA}"; else key="${GITHUB_REF#refs/tags/}"; fi
+          # THIS run. On main that is the RUN-SCOPED sha-<commit>-run-<id>
+          # staging tag the publish leg pushed (a bare sha-<commit> tag is
+          # mutable and a parallel run could move it); on a release tag it
+          # is the vX.Y.Z tag it just assigned. Each verified digest is
+          # written to a file so Pass 2 never re-resolves a tag.
+          verified="$(mktemp)"
+          if $on_main; then key="sha-${GITHUB_SHA}-run-${GITHUB_RUN_ID}"; else key="${GITHUB_REF#refs/tags/}"; fi
           for image in $EXPECTED_IMAGES; do
             repo="vrubovoy/${image}"
             [ "$(.github/scripts/ghcr-manifest-status.sh "$repo" "$key")" = "200" ] || {
               echo "::error::ghcr.io/${repo}:${key} was not published by this run" >&2; exit 1; }
             d="$(docker buildx imagetools inspect "ghcr.io/${repo}:${key}" --format '{{.Manifest.Digest}}')"
             verify_digest "$repo" "$d"
+            printf '%s %s\n' "$image" "$d" >> "$verified"
             echo "::notice::ghcr.io/${repo} verified at ${d} for ${key}"
           done
 
-          # Pass 2 - main only: every image passed, so move every :latest.
+          # Pass 2 - main only: every image passed Pass 1, so point every
+          # :latest at the digest recorded in Pass 1 (not a fresh lookup).
           if $on_main; then
-            for image in $EXPECTED_IMAGES; do
+            while read -r image d; do
               repo="vrubovoy/${image}"
-              d="$(docker buildx imagetools inspect "ghcr.io/${repo}:${key}" --format '{{.Manifest.Digest}}')"
               docker buildx imagetools create --tag "ghcr.io/${repo}:latest" "ghcr.io/${repo}@${d}"
               got="$(docker buildx imagetools inspect "ghcr.io/${repo}:latest" --format '{{.Manifest.Digest}}')"
               [ "$got" = "$d" ] || {
-                echo "::error::ghcr.io/${repo}:latest resolves to ${got}, not ${d}" >&2; exit 1; }
+                echo "::error::ghcr.io/${repo}:latest resolves to ${got}, not the verified ${d}" >&2; exit 1; }
               echo "::notice::ghcr.io/${repo}:latest -> ${d}"
-            done
+            done < "$verified"
           fi
