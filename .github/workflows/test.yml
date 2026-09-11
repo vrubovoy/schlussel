@@ -10,6 +10,9 @@ concurrency:
   group: publish-${{ github.repository }}-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -19,7 +22,7 @@ jobs:
       # schloss-ui is a git submodule - the workspace install below
       # touches it too (no --filter), even though the backend never
       # imports from it.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: recursive
 
@@ -28,11 +31,11 @@ jobs:
       # pnpm 11.12.0 shipped with an internal bug in the self-installer
       # ("Cannot use 'in' operator to search for 'integrity' in
       # undefined"), unrelated to any change in this repo.
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
         with:
           version: 11.7.0
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: pnpm
@@ -49,7 +52,7 @@ jobs:
       # schloss-ui is a git submodule, linked via pnpm's workspace:*
       # protocol - needs to be checked out and built before frontend can
       # import from it.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: recursive
 
@@ -58,11 +61,11 @@ jobs:
       # pnpm 11.12.0 shipped with an internal bug in the self-installer
       # ("Cannot use 'in' operator to search for 'integrity' in
       # undefined"), unrelated to any change in this repo.
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
         with:
           version: 11.7.0
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: pnpm
@@ -78,118 +81,283 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: read
     steps:
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Validate release ref and refuse overwrite
+          fetch-depth: 0
+
+      - name: A release tag must be canonical SemVer on a reviewed, merged commit
         if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
         run: |
           tag="${GITHUB_REF#refs/tags/}"
           semver='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$'
           if [[ ! "$tag" =~ $semver ]]; then
-            echo "::error::Release ref must be vX.Y.Z SemVer (prerelease allowed; build metadata is not representable in an OCI tag): $tag" >&2
+            echo "::error::release ref must be vX.Y.Z SemVer (prerelease allowed; build metadata is not representable in an OCI tag): $tag" >&2
             exit 1
           fi
-          for image in schlussel schlussel-frontend; do
-            ref="ghcr.io/vrubovoy/${image}:${tag}"
-            if docker buildx imagetools inspect "$ref" >/dev/null 2>&1; then
-              echo "::error::${ref} already exists - release tags are immutable, use a new version." >&2
-              exit 1
-            fi
-          done
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::tag commit ${GITHUB_SHA} is not an ancestor of origin/main - tag a merged commit." >&2
+            exit 1
+          fi
 
   publish:
     needs: publish-preflight
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    # External gate: the `publish` environment's deployment branch policy
+    # (custom - the `main` branch and the `v*` tag pattern only). This
+    # stops an UNMODIFIED workflow from publishing off a feature branch;
+    # a feature branch controls its own workflow file and could drop
+    # `environment:` and request `packages: write`. That is acceptable
+    # ONLY under the platform's trusted-collaborator model (Model 1: every
+    # same-repo actor with write access is trusted; today the only one is
+    # a repository admin) - see SECURITY.md. In-workflow: publish-preflight
+    # requires a release tag's commit to be on main; each matrix leg
+    # classifies its own target tag; the immutable tag is assigned last,
+    # after signing and attestation.
+    environment: publish
     permissions:
       contents: read
       packages: write
-      # Needed for keyless Cosign/OIDC signing and for the SBOM/provenance
-      # attestations below - both mint a short-lived Sigstore identity from
-      # this workflow run rather than a stored signing key.
+      # Keyless Cosign/OIDC signing + SBOM/provenance attestations.
       id-token: write
       attestations: write
     strategy:
+      fail-fast: false
       matrix:
         include:
           - image: schlussel
             dockerfile: Dockerfile
           - image: schlussel-frontend
             dockerfile: frontend/Dockerfile
+    env:
+      IMAGE: ghcr.io/vrubovoy/${{ matrix.image }}
+      IMAGE_REPO: vrubovoy/${{ matrix.image }}
+      GHCR_USER: ${{ github.actor }}
+      GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           submodules: recursive
+          fetch-depth: 0
 
-      - uses: docker/setup-buildx-action@v4
-
-      - uses: sigstore/cosign-installer@v3
-
-      - uses: docker/login-action@v4
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute image tags
-        id: tags
+      - name: Classify this image's release-tag target (real HTTP status)
+        id: state
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
-          image="ghcr.io/vrubovoy/${{ matrix.image }}"
-          tags=("$image:${GITHUB_SHA}")
-          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
-            tags+=("$image:latest")
-          elif [ "${GITHUB_REF#refs/tags/}" != "${GITHUB_REF}" ]; then
-            tags+=("$image:${GITHUB_REF#refs/tags/}")
-          fi
-          {
-            echo "tags<<EOF"
-            printf '%s\n' "${tags[@]}"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          tag="${GITHUB_REF#refs/tags/}"
+          status="$(.github/scripts/ghcr-manifest-status.sh "$IMAGE_REPO" "$tag")"
+          case "$status" in
+            404) echo "mode=absent" >> "$GITHUB_OUTPUT" ;;
+            200) echo "mode=exists" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::GHCR probe for ${IMAGE}:${tag} returned '${status}', not a clean 200/404 - refusing." >&2; exit 1 ;;
+          esac
 
-      - uses: docker/build-push-action@v7
+      - name: Resume - an existing release tag must be THIS commit, signed and attested (else it is a conflict)
+        if: steps.state.outputs.mode == 'exists'
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          digest="$(docker buildx imagetools inspect "${IMAGE}:${tag}" --format '{{.Manifest.Digest}}')"
+          [ -n "$digest" ] || { echo "::error::could not resolve ${IMAGE}:${tag} to a digest" >&2; exit 1; }
+          [ "$(.github/scripts/ghcr-manifest-status.sh "$IMAGE_REPO" "$digest")" = "200" ] || {
+            echo "::error::${IMAGE}@${digest} is not a live manifest" >&2; exit 1; }
+          img="${IMAGE}@${digest}"
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/test.yml@refs/tags/${tag}"
+          cosign verify "$img" \
+            --certificate-identity "$identity" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-github-workflow-repository "${GITHUB_REPOSITORY}" \
+            --certificate-github-workflow-sha "${GITHUB_SHA}" >/dev/null
+          gh attestation verify "oci://${img}" --repo "$GITHUB_REPOSITORY" \
+            --predicate-type https://slsa.dev/provenance/v1 \
+            --cert-identity "$identity" \
+            --source-digest "$GITHUB_SHA" --source-ref "$GITHUB_REF" >/dev/null
+          gh attestation verify "oci://${img}" --repo "$GITHUB_REPOSITORY" \
+            --predicate-type https://spdx.dev/Document \
+            --cert-identity "$identity" \
+            --source-digest "$GITHUB_SHA" --source-ref "$GITHUB_REF" >/dev/null
+          echo "::notice::${img} is already published for ${tag} at ${GITHUB_SHA} - nothing to do."
+
+      - name: Build and push the immutable digest + staging tags (not the release tag / latest yet)
+        if: steps.state.outputs.mode != 'exists'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         id: build
         with:
           context: .
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.tags.outputs.tags }}
+          # sha-<commit>          - human/external per-commit contract
+          # sha-<commit>-run-<id> - the staging tag finalize reads; run-id
+          #   (not run-attempt) so a "re-run failed jobs" of only finalize
+          #   still finds it. Scoped per run so a parallel main-run and
+          #   v*-tag-run of the same commit cannot clobber each other's.
+          tags: |
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+            ${{ env.IMAGE }}:sha-${{ github.sha }}-run-${{ github.run_id }}
 
-      # Keyless: cosign mints a short-lived certificate from this workflow's
-      # own OIDC identity (no stored signing key) and records the signature
-      # in the public Rekor transparency log. Signs the immutable digest,
-      # not a mutable tag - `cosign verify` on any tag above resolves to
-      # this same signed digest.
-      - name: Sign image with keyless Cosign
-        run: cosign sign --yes "ghcr.io/vrubovoy/${{ matrix.image }}@${{ steps.build.outputs.digest }}"
+      - name: Sign the digest with keyless Cosign
+        if: steps.state.outputs.mode != 'exists'
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${IMAGE_DIGEST}"
 
       - name: Generate SBOM
-        uses: anchore/sbom-action@v0
+        if: steps.state.outputs.mode != 'exists'
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
-          image: ghcr.io/vrubovoy/${{ matrix.image }}@${{ steps.build.outputs.digest }}
+          image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
           format: spdx-json
           output-file: sbom.spdx.json
           upload-artifact: false
 
       - name: Attest SBOM
-        uses: actions/attest-sbom@v2
+        if: steps.state.outputs.mode != 'exists'
+        uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b # v2
         with:
-          subject-name: ghcr.io/vrubovoy/${{ matrix.image }}
+          subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.build.outputs.digest }}
           sbom-path: sbom.spdx.json
           push-to-registry: true
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
+        if: steps.state.outputs.mode != 'exists'
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
-          subject-name: ghcr.io/vrubovoy/${{ matrix.image }}
+          subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+      - name: LAST - assign the immutable release tag to the now-signed digest
+        if: steps.state.outputs.mode == 'absent'
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          ref="${IMAGE}:${tag}"
+          status="$(.github/scripts/ghcr-manifest-status.sh "$IMAGE_REPO" "$tag")"
+          case "$status" in
+            404) : ;;
+            200) echo "::error::${ref} appeared during publish - aborting rather than overwriting it." >&2; exit 1 ;;
+            *) echo "::error::pre-assignment probe for ${ref} returned '${status}', not a clean 404 - aborting." >&2; exit 1 ;;
+          esac
+          docker buildx imagetools create --tag "$ref" "${IMAGE}@${IMAGE_DIGEST}"
+          got="$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}')"
+          [ "$got" = "$IMAGE_DIGEST" ] || {
+            echo "::error::${ref} resolves to ${got}, not the signed digest ${IMAGE_DIGEST}" >&2; exit 1; }
+
+  # Single, matrix-wide finalizer. The `publish` legs never touch :latest -
+  # doing it per leg races (leg A sees commit A as tip and moves :latest;
+  # commit B lands; leg B sees the new tip and skips, leaving one image's
+  # :latest a commit behind the other). This job does ONE tip check for
+  # the whole run and, only if this commit is still origin/main's tip,
+  # verifies every image's this-run digest (exact identity test.yml@REF +
+  # workflow SHA + both attestations bound to source digest/ref) via the
+  # RUN-SCOPED staging tag, remembers each verified digest, and then moves
+  # each :latest to the REMEMBERED digest - never re-resolving a mutable
+  # tag that a parallel run could have moved. The two :latest updates are
+  # still two API calls, not one atomic swap: a failure between them turns
+  # the run red and a retry re-points both from the same verified digests.
+  # For a release-tag build this job is the exact verifier of the
+  # just-assigned vX.Y.Z tag (no :latest move).
+  finalize:
+    needs: publish
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: publish
+    permissions:
+      contents: read
+      packages: write
+      attestations: read
+    env:
+      EXPECTED_IMAGES: "schlussel schlussel-frontend"
+      GHCR_USER: ${{ github.actor }}
+      GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/test.yml@${{ github.ref }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify the whole matrix at this exact commit, then move every :latest together
+        run: |
+          set -euo pipefail
+
+          on_main=false
+          [ "$GITHUB_REF" = "refs/heads/main" ] && on_main=true
+
+          # One tip check for the whole run. A superseded run finalizes
+          # nothing - the newer run owns :latest.
+          if $on_main; then
+            git fetch --no-tags origin main
+            if [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then
+              echo "::notice::origin/main advanced past ${GITHUB_SHA}; the newer run owns :latest. Nothing to finalize."
+              exit 0
+            fi
+          fi
+
+          verify_digest() {  # $1 repo path (vrubovoy/x)   $2 digest
+            local img="ghcr.io/$1@$2"
+            cosign verify "$img" \
+              --certificate-identity "$IDENTITY" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              --certificate-github-workflow-repository "$GITHUB_REPOSITORY" \
+              --certificate-github-workflow-sha "$GITHUB_SHA" >/dev/null
+            gh attestation verify "oci://${img}" --repo "$GITHUB_REPOSITORY" \
+              --predicate-type https://slsa.dev/provenance/v1 \
+              --cert-identity "$IDENTITY" \
+              --source-digest "$GITHUB_SHA" --source-ref "$GITHUB_REF" >/dev/null
+            gh attestation verify "oci://${img}" --repo "$GITHUB_REPOSITORY" \
+              --predicate-type https://spdx.dev/Document \
+              --cert-identity "$IDENTITY" \
+              --source-digest "$GITHUB_SHA" --source-ref "$GITHUB_REF" >/dev/null
+          }
+
+          # Pass 1 - resolve + verify every expected image's digest for
+          # THIS run. On main that is the RUN-SCOPED sha-<commit>-run-<id>
+          # staging tag the publish leg pushed (a bare sha-<commit> tag is
+          # mutable and a parallel run could move it); on a release tag it
+          # is the vX.Y.Z tag it just assigned. Each verified digest is
+          # written to a file so Pass 2 never re-resolves a tag.
+          verified="$(mktemp)"
+          if $on_main; then key="sha-${GITHUB_SHA}-run-${GITHUB_RUN_ID}"; else key="${GITHUB_REF#refs/tags/}"; fi
+          for image in $EXPECTED_IMAGES; do
+            repo="vrubovoy/${image}"
+            [ "$(.github/scripts/ghcr-manifest-status.sh "$repo" "$key")" = "200" ] || {
+              echo "::error::ghcr.io/${repo}:${key} was not published by this run" >&2; exit 1; }
+            d="$(docker buildx imagetools inspect "ghcr.io/${repo}:${key}" --format '{{.Manifest.Digest}}')"
+            verify_digest "$repo" "$d"
+            printf '%s %s\n' "$image" "$d" >> "$verified"
+            echo "::notice::ghcr.io/${repo} verified at ${d} for ${key}"
+          done
+
+          # Pass 2 - main only: every image passed Pass 1, so point every
+          # :latest at the digest recorded in Pass 1 (not a fresh lookup).
+          if $on_main; then
+            while read -r image d; do
+              repo="vrubovoy/${image}"
+              docker buildx imagetools create --tag "ghcr.io/${repo}:latest" "ghcr.io/${repo}@${d}"
+              got="$(docker buildx imagetools inspect "ghcr.io/${repo}:latest" --format '{{.Manifest.Digest}}')"
+              [ "$got" = "$d" ] || {
+                echo "::error::ghcr.io/${repo}:latest resolves to ${got}, not the verified ${d}" >&2; exit 1; }
+              echo "::notice::ghcr.io/${repo}:latest -> ${d}"
+            done < "$verified"
+          fi
